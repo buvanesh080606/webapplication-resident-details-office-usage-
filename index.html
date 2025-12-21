@@ -3,103 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ResiRoom Pro | Mobile</title>
-<link rel="icon" type="image/png" href="favicons/icon.png?v=1">
-<link rel="apple-touch-icon" href="favicons/icon.png?v=1">
-<link rel="shortcut icon" sizes="192x192" href="favicons/icon.png?v=1">
+    <title>ResiRoom Pro | Clean Export</title>
+    
+    <link rel="icon" type="image/png" href="icon.png?v=5">
+    <link rel="apple-touch-icon" href="icon.png?v=5">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+
     <style>
-        .sticky-col { position: sticky; left: 0; z-index: 10; background: white; border-right: 1px solid #e2e8f0; }
-        .sticky-col-2 { position: sticky; left: 64px; z-index: 10; background: white; border-right: 2px solid #cbd5e1; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        .sticky-col { position: sticky; left: 0; z-index: 20; background: white; border-right: 2px solid #f1f5f9; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        /* Distinct Booking Color */
-        .booked { background-color: #ef4444 !important; color: white; border: 1px solid #dc2626; }
-        .cell-active:active { background-color: #f1f5f9; }
-        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+        .booked { background-color: #ef4444 !important; color: white !important; border: 1px solid #dc2626; }
+        input.room-edit { border: none; background: transparent; font-weight: 700; width: 100%; color: #4338ca; font-size: 0.85rem; }
+        input, textarea { user-select: text !important; -webkit-user-select: text !important; }
+        .del-btn { padding: 10px; cursor: pointer; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 select-none pb-20">
+<body class="bg-slate-50 text-slate-900 pb-24">
 
-    <header class="bg-indigo-700 text-white p-4 sticky top-0 z-40 shadow-lg">
-        <div class="flex justify-between items-center mb-2">
-            <h1 class="text-xl font-bold flex items-center gap-2">
-                <i data-lucide="building-2"></i> ResiRoom
+    <!-- Header -->
+    <header class="bg-indigo-700 text-white sticky top-0 z-40 shadow-xl">
+        <div class="p-4 flex justify-between items-center border-b border-indigo-600">
+            <h1 class="text-xl font-extrabold flex items-center gap-2">
+                <i data-lucide="building"></i> ResiRoom
             </h1>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
                 <button onclick="changeMonth(-1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-left"></i></button>
-                <span id="currentMonthYear" class="font-bold text-sm uppercase tracking-tight w-32 text-center"></span>
+                <span id="currentMonthYear" class="font-bold text-xs uppercase w-28 text-center tracking-tighter"></span>
                 <button onclick="changeMonth(1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-right"></i></button>
             </div>
         </div>
-        <div class="flex justify-between items-center px-1">
-            <p class="text-[10px] opacity-80 font-bold uppercase tracking-widest">Room Management Grid</p>
-            <button onclick="toggleHousePanel()" class="text-[10px] bg-indigo-500 px-2 py-1 rounded-md font-bold uppercase tracking-widest flex items-center gap-1">
-                <i data-lucide="settings-2" class="w-3 h-3"></i> Manage Houses
+
+        <div class="p-4 bg-indigo-800">
+            <label class="block text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Active House Selection</label>
+            <div class="relative">
+                <select id="houseDropdown" onchange="switchHouse(this.value)" class="w-full bg-white text-indigo-900 font-bold p-3 rounded-xl appearance-none outline-none shadow-lg">
+                </select>
+                <i data-lucide="chevron-down" class="absolute right-3 top-3.5 w-4 h-4 text-indigo-400 pointer-events-none"></i>
+            </div>
+        </div>
+
+        <div class="flex bg-indigo-900 px-2 py-2 gap-2">
+            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md active:scale-95 transition">
+                <i data-lucide="download" class="w-4 h-4"></i> Export Excel
+            </button>
+            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md active:scale-95 transition">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> Settings
             </button>
         </div>
     </header>
 
-    <!-- Side Panel -->
-    <div id="housePanel" class="fixed inset-0 bg-black/50 z-50 hidden">
-        <div class="bg-white w-3/4 h-full ml-auto p-6 shadow-2xl overflow-y-auto">
+    <!-- Main Grid -->
+    <main class="w-full overflow-hidden">
+        <div class="overflow-x-auto no-scrollbar" id="gridWrapper">
+            <table class="w-full border-collapse bg-white">
+                <thead>
+                    <tr id="tableHeader" class="bg-slate-100 border-b border-slate-200"></tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+            <div class="p-6 bg-white border-t border-slate-100 flex justify-center">
+                <button onclick="addNewRoom()" class="flex items-center gap-2 px-8 py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-bold text-sm hover:bg-indigo-100 transition active:scale-95">
+                    <i data-lucide="list-plus" class="w-5 h-5"></i> Add New Room Row
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- House Management Panel -->
+    <div id="housePanel" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="font-bold text-lg">House Library</h3>
-                <button onclick="toggleHousePanel()"><i data-lucide="x"></i></button>
+                <h3 class="font-extrabold text-lg text-indigo-900 tracking-tight">Manage Houses</h3>
+                <button onclick="toggleHousePanel(false)" class="text-slate-400"><i data-lucide="x"></i></button>
             </div>
             <div class="space-y-4">
                 <div class="flex gap-2">
-                    <input type="text" id="newHouseInput" placeholder="Add House Name" class="flex-1 bg-slate-100 p-2 rounded-lg text-sm">
-                    <button onclick="addHouse()" class="bg-indigo-600 text-white p-2 rounded-lg"><i data-lucide="plus"></i></button>
+                    <input type="text" id="newHouseInput" placeholder="House Name..." class="flex-1 bg-slate-50 p-3 rounded-xl border-2 border-slate-100 focus:border-indigo-400 outline-none font-bold">
+                    <button onclick="addHouse()" class="bg-indigo-600 text-white px-4 rounded-xl flex items-center justify-center">
+                        <i data-lucide="plus"></i>
+                    </button>
                 </div>
-                <div id="houseList" class="space-y-2"></div>
+                <div id="houseList" class="max-h-60 overflow-y-auto space-y-2 py-2"></div>
+                <button onclick="toggleHousePanel(false)" class="w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-500 text-sm">Close</button>
             </div>
         </div>
     </div>
 
-    <main class="w-full">
-        <div class="overflow-x-auto no-scrollbar" id="gridWrapper">
-            <table class="w-full border-collapse">
-                <thead>
-                    <tr id="tableHeader" class="bg-slate-200 border-b border-slate-300"></tr>
-                </thead>
-                <tbody id="tableBody"></tbody>
-            </table>
-        </div>
-    </main>
-
     <!-- Booking Modal -->
-    <div id="bookingModal" class="fixed inset-0 bg-black/60 z-[60] hidden flex items-end sm:items-center justify-center">
-        <div class="bg-white w-full max-w-md rounded-t-[2.5rem] sm:rounded-3xl p-8 shadow-2xl">
-            <div class="w-12 h-1 bg-slate-200 rounded-full mx-auto mb-6"></div>
-            <h2 id="modalTitle" class="text-2xl font-bold mb-2">Book Room</h2>
-            <p id="modalSubtitle" class="text-sm text-slate-500 mb-6 font-medium italic text-indigo-600"></p>
-            
+    <div id="bookingModal" class="fixed inset-0 bg-black/60 z-[60] hidden flex items-end justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-t-[2.5rem] rounded-b-[2.5rem] p-8 shadow-2xl">
+            <h2 id="modalTitle" class="text-2xl font-black mb-1">Update Info</h2>
+            <p id="modalSubtitle" class="text-xs text-indigo-500 font-bold uppercase tracking-widest mb-6"></p>
             <form id="bookingForm" class="space-y-4">
                 <input type="hidden" id="modalRoomId">
-                <input type="hidden" id="modalHouseName">
-                <input type="hidden" id="modalDate">
-                
-                <div>
-                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Residents List</label>
-                    <textarea id="members" placeholder="Enter names..." required class="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 outline-none min-h-[120px]"></textarea>
-                </div>
-                
+                <textarea id="members" placeholder="Enter Resident Names..." required class="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 outline-none h-24 font-semibold"></textarea>
                 <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Check In</label>
-                        <input type="date" id="startDate" required class="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-semibold">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Check Out</label>
-                        <input type="date" id="endDate" required class="w-full p-4 bg-slate-50 border-none rounded-2xl text-sm font-semibold">
-                    </div>
+                    <input type="date" id="startDate" required class="w-full p-3 bg-slate-50 border-none rounded-xl font-bold text-sm">
+                    <input type="date" id="endDate" required class="w-full p-3 bg-slate-50 border-none rounded-xl font-bold text-sm">
                 </div>
-
                 <div class="flex flex-col gap-3 pt-6">
-                    <button type="submit" id="btnSave" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-xl">Confirm Entry</button>
-                    <button type="button" id="btnDelete" onclick="deleteBooking()" class="w-full bg-red-50 text-red-600 py-4 rounded-2xl font-bold hidden border border-red-100">Delete Permanently</button>
-                    <button type="button" onclick="closeModal()" class="w-full py-2 text-slate-400 font-bold text-sm">Dismiss</button>
+                    <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg">Save Booking</button>
+                    <button type="button" id="btnDelete" onclick="deleteBooking()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hidden border border-red-100">Delete Entry</button>
+                    <button type="button" onclick="closeModal()" class="w-full py-2 text-slate-400 font-bold text-sm text-center">Cancel</button>
                 </div>
             </form>
         </div>
@@ -107,126 +117,148 @@
 
     <script>
         let currentDate = new Date();
-        let houseLibrary = JSON.parse(localStorage.getItem('houseLibrary')) || ["Pallavan", "Pandian", "BSI"];
-        let roomToHouse = JSON.parse(localStorage.getItem('roomToHouse')) || {};
+        let houseLibrary = JSON.parse(localStorage.getItem('houseLib')) || [];
+        let activeHouse = localStorage.getItem('activeHouse') || (houseLibrary[0] || "");
+        let houseRooms = JSON.parse(localStorage.getItem('houseRooms')) || {};
+        let roomNames = JSON.parse(localStorage.getItem('roomNames')) || {};
         let bookings = JSON.parse(localStorage.getItem('roomBookings')) || [];
 
         function init() {
-            lucide.createIcons();
+            renderHouseDropdown();
             renderTable();
             renderHouseList();
+            lucide.createIcons();
+            if(houseLibrary.length === 0) setTimeout(() => toggleHousePanel(true), 500);
         }
 
-        function toggleHousePanel() { document.getElementById('housePanel').classList.toggle('hidden'); }
+        function switchHouse(val) { activeHouse = val; localStorage.setItem('activeHouse', val); renderTable(); }
+        function toggleHousePanel(show) { document.getElementById('housePanel').classList.toggle('hidden', !show); }
+
+        function renderHouseDropdown() {
+            const select = document.getElementById('houseDropdown');
+            if(houseLibrary.length === 0) { select.innerHTML = '<option value="">+ Add House</option>'; return; }
+            select.innerHTML = houseLibrary.map(h => `<option value="${h}" ${h === activeHouse ? 'selected' : ''}>${h}</option>`).join('');
+        }
 
         function renderHouseList() {
             const list = document.getElementById('houseList');
-            list.innerHTML = houseLibrary.map((house, idx) => `
-                <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
-                    <span class="font-semibold text-sm">${house}</span>
-                    <button onclick="removeHouse(${idx})" class="text-red-400"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+            list.innerHTML = houseLibrary.map((h, i) => `
+                <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border mb-2">
+                    <span class="font-bold text-indigo-900">${h}</span>
+                    <button onclick="removeHouse(${i})" class="text-red-400 p-2"><i data-lucide="trash-2"></i></button>
                 </div>
             `).join('');
             lucide.createIcons();
         }
 
         function addHouse() {
-            const input = document.getElementById('newHouseInput');
-            if (input.value.trim()) {
-                houseLibrary.push(input.value.trim());
-                localStorage.setItem('houseLibrary', JSON.stringify(houseLibrary));
-                input.value = '';
-                renderHouseList();
-                renderTable();
+            const inp = document.getElementById('newHouseInput');
+            const name = inp.value.trim();
+            if (name && !houseLibrary.includes(name)) {
+                houseLibrary.push(name);
+                houseRooms[name] = [1,2,3,4,5,6,7,8,9,10,11,12];
+                if(!activeHouse) activeHouse = name;
+                saveAndRefresh();
+                inp.value = '';
             }
         }
 
-        function removeHouse(index) {
-            houseLibrary.splice(index, 1);
-            localStorage.setItem('houseLibrary', JSON.stringify(houseLibrary));
+        function removeHouse(idx) {
+            if(confirm('Delete house and all its data?')) {
+                const deleted = houseLibrary.splice(idx, 1)[0];
+                bookings = bookings.filter(b => b.house !== deleted);
+                delete houseRooms[deleted];
+                delete roomNames[deleted];
+                if (activeHouse === deleted) activeHouse = houseLibrary[0] || "";
+                saveAndRefresh();
+            }
+        }
+
+        function addNewRoom() {
+            if(!activeHouse) return alert("Select a house first!");
+            if(!houseRooms[activeHouse]) houseRooms[activeHouse] = [];
+            const newId = Date.now(); 
+            houseRooms[activeHouse].push(newId);
+            saveAndRefresh();
+        }
+
+        function removeRoomRow(roomId) {
+            if(confirm(`Delete this room row and all its bookings permanently?`)) {
+                houseRooms[activeHouse] = houseRooms[activeHouse].filter(id => id != roomId);
+                // CLEANUP: Immediately purge all bookings tied to this specific room and house
+                bookings = bookings.filter(b => !(b.roomId == roomId && b.house === activeHouse));
+                if(roomNames[activeHouse]) delete roomNames[activeHouse][roomId];
+                saveAndRefresh();
+            }
+        }
+
+        function saveAndRefresh() {
+            localStorage.setItem('houseLib', JSON.stringify(houseLibrary));
+            localStorage.setItem('houseRooms', JSON.stringify(houseRooms));
+            localStorage.setItem('roomBookings', JSON.stringify(bookings));
+            localStorage.setItem('roomNames', JSON.stringify(roomNames));
+            localStorage.setItem('activeHouse', activeHouse);
+            renderHouseDropdown();
             renderHouseList();
             renderTable();
         }
 
-        // IMPORTANT: When house changes, re-render to update the visual red bookings
-        function saveRoomAssignment(roomNum, houseName) {
-            roomToHouse[roomNum] = houseName;
-            localStorage.setItem('roomToHouse', JSON.stringify(roomToHouse));
-            renderTable(); 
-        }
-
-        function changeMonth(dir) {
-            currentDate.setMonth(currentDate.getMonth() + dir);
-            renderTable();
+        function saveRoomLabel(id, val) {
+            if (!activeHouse) return;
+            if (!roomNames[activeHouse]) roomNames[activeHouse] = {};
+            roomNames[activeHouse][id] = val;
+            localStorage.setItem('roomNames', JSON.stringify(roomNames));
         }
 
         function renderTable() {
+            const wrapper = document.getElementById('tableBody');
+            const header = document.getElementById('tableHeader');
+            if (!activeHouse || !houseRooms[activeHouse]) {
+                header.innerHTML = '';
+                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No Rooms found</td></tr>';
+                return;
+            }
             const month = currentDate.getMonth();
             const year = currentDate.getFullYear();
             const daysCount = new Date(year, month + 1, 0).getDate();
             document.getElementById('currentMonthYear').innerText = `${currentDate.toLocaleString('default', { month: 'long' })} ${year}`;
-
-            let headerHtml = `<th class="sticky-col px-4 py-4 text-left text-[9px] font-black text-slate-400 uppercase min-w-[64px]">Room</th><th class="sticky-col-2 px-4 py-4 text-left text-[9px] font-black text-slate-400 uppercase min-w-[140px]">House</th>`;
-            for (let d = 1; d <= daysCount; d++) {
-                headerHtml += `<th class="px-4 py-4 text-center text-[10px] font-bold text-slate-500 border-r border-slate-100 min-w-[50px]">${d}</th>`;
-            }
-            document.getElementById('tableHeader').innerHTML = headerHtml;
-
-            let bodyHtml = '';
-            for (let r = 1; r <= 12; r++) {
-                const currentHouse = roomToHouse[r] || houseLibrary[0];
-                bodyHtml += `<tr class="border-b border-slate-100">
-                    <td class="sticky-col px-4 py-6 font-black text-indigo-700 bg-white text-center">#${r}</td>
-                    <td class="sticky-col-2 px-2 py-2 bg-white">
-                        <div class="relative">
-                            <select onchange="saveRoomAssignment(${r}, this.value)" class="w-full text-[11px] font-bold border-none bg-slate-100 rounded-lg p-2 pr-6 appearance-none">
-                                ${houseLibrary.map(h => `<option value="${h}" ${h === currentHouse ? 'selected' : ''}>${h}</option>`).join('')}
-                            </select>
-                            <i data-lucide="chevron-down" class="absolute right-2 top-2.5 w-3 h-3 text-slate-400 pointer-events-none"></i>
+            let hHtml = `<th class="sticky-col px-4 py-4 text-left text-[9px] font-black text-slate-400 uppercase min-w-[170px]">Room Label</th>`;
+            for (let d = 1; d <= daysCount; d++) hHtml += `<th class="px-4 py-4 text-center text-[10px] font-bold text-slate-500 border-r border-slate-100 min-w-[48px]">${d}</th>`;
+            header.innerHTML = hHtml;
+            let bHtml = '';
+            houseRooms[activeHouse].forEach(id => {
+                const label = (roomNames[activeHouse] && roomNames[activeHouse][id]) ? roomNames[activeHouse][id] : `Room ${id}`;
+                bHtml += `<tr class="border-b border-slate-100">
+                    <td class="sticky-col px-1 py-3 bg-white">
+                        <div class="flex items-center">
+                            <button onclick="removeRoomRow(${id})" class="p-2 text-red-300 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            <input type="text" class="room-edit" value="${label}" onchange="saveRoomLabel(${id}, this.value)" placeholder="Name">
                         </div>
                     </td>`;
-                
                 for (let d = 1; d <= daysCount; d++) {
-                    const dateStr = `${year}-${(month+1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-                    
-                    // CHECK: Room # AND House Name must match
-                    const booking = bookings.find(b => {
-                        const start = new Date(b.start + "T00:00:00");
-                        const end = new Date(b.end + "T00:00:00");
-                        const curr = new Date(dateStr + "T00:00:00");
-                        return b.roomId == r && b.houseName === currentHouse && curr >= start && curr <= end;
-                    });
-                    
-                    bodyHtml += `<td onclick="handleCellClick(${r}, '${dateStr}')" class="text-center border-r border-slate-50 transition-all cursor-pointer cell-active ${booking ? 'booked' : ''}">${booking ? '<i data-lucide="users" class="w-4 h-4 mx-auto"></i>' : ''}</td>`;
+                    const dStr = `${year}-${(month+1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+                    const b = bookings.find(x => x.roomId == id && x.house === activeHouse && dStr >= x.start && dStr <= x.end);
+                    bHtml += `<td onclick="handleCellClick(${id}, '${dStr}')" class="text-center border-r border-slate-50 transition-all cursor-pointer ${b ? 'booked' : ''}">
+                        ${b ? '<i data-lucide="user" class="w-4 h-4 mx-auto"></i>' : ''}
+                    </td>`;
                 }
-                bodyHtml += '</tr>';
-            }
-            document.getElementById('tableBody').innerHTML = bodyHtml;
+                bHtml += '</tr>';
+            });
+            wrapper.innerHTML = bHtml;
             lucide.createIcons();
         }
 
-        function handleCellClick(roomId, date) {
-            const currentHouse = roomToHouse[roomId] || houseLibrary[0];
-            const booking = bookings.find(b => {
-                const start = new Date(b.start + "T00:00:00");
-                const end = new Date(b.end + "T00:00:00");
-                const curr = new Date(date + "T00:00:00");
-                return b.roomId == roomId && b.houseName === currentHouse && curr >= start && curr <= end;
-            });
-
-            document.getElementById('modalRoomId').value = roomId;
-            document.getElementById('modalHouseName').value = currentHouse;
-            document.getElementById('modalDate').value = date;
-            document.getElementById('modalSubtitle').innerText = `House: ${currentHouse} | Room ${roomId}`;
-            
-            if (booking) {
-                document.getElementById('modalTitle').innerText = `Booking Details`;
-                document.getElementById('members').value = booking.members;
-                document.getElementById('startDate').value = booking.start;
-                document.getElementById('endDate').value = booking.end;
+        function handleCellClick(id, date) {
+            const b = bookings.find(x => x.roomId == id && x.house === activeHouse && date >= x.start && date <= x.end);
+            const label = (roomNames[activeHouse] && roomNames[activeHouse][id]) ? roomNames[activeHouse][id] : `Room ${id}`;
+            document.getElementById('modalRoomId').value = id;
+            document.getElementById('modalSubtitle').innerText = `${activeHouse} | ${label}`;
+            if (b) {
+                document.getElementById('members').value = b.members;
+                document.getElementById('startDate').value = b.start;
+                document.getElementById('endDate').value = b.end;
                 document.getElementById('btnDelete').classList.remove('hidden');
             } else {
-                document.getElementById('modalTitle').innerText = `New Booking`;
                 document.getElementById('members').value = '';
                 document.getElementById('startDate').value = date;
                 document.getElementById('endDate').value = date;
@@ -239,42 +271,59 @@
 
         document.getElementById('bookingForm').onsubmit = function(e) {
             e.preventDefault();
-            const roomId = document.getElementById('modalRoomId').value;
-            const houseName = document.getElementById('modalHouseName').value;
-            const start = document.getElementById('startDate').value;
-            const end = document.getElementById('endDate').value;
-            const members = document.getElementById('members').value;
-
-            // Remove existing to prevent overlap on same house
-            bookings = bookings.filter(b => !(b.roomId == roomId && b.houseName == houseName && (
-                (new Date(start) >= new Date(b.start) && new Date(start) <= new Date(b.end)) ||
-                (new Date(end) >= new Date(b.start) && new Date(end) <= new Date(b.end))
-            )));
-
-            bookings.push({ roomId, houseName, start, end, members });
-            localStorage.setItem('roomBookings', JSON.stringify(bookings));
-            renderTable();
-            closeModal();
+            const id = document.getElementById('modalRoomId').value;
+            const s = document.getElementById('startDate').value;
+            const en = document.getElementById('endDate').value;
+            const m = document.getElementById('members').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && ((s >= b.start && s <= b.end) || (en >= b.start && en <= b.end))));
+            bookings.push({ roomId: id, house: activeHouse, start: s, end: en, members: m });
+            saveAndRefresh(); closeModal();
         };
 
         function deleteBooking() {
-            const roomId = document.getElementById('modalRoomId').value;
-            const houseName = document.getElementById('modalHouseName').value;
-            const date = document.getElementById('modalDate').value;
-            
-            bookings = bookings.filter(b => {
-                const start = new Date(b.start + "T00:00:00");
-                const end = new Date(b.end + "T00:00:00");
-                const curr = new Date(date + "T00:00:00");
-                return !(b.roomId == roomId && b.houseName == houseName && curr >= start && curr <= end);
-            });
-            
-            localStorage.setItem('roomBookings', JSON.stringify(bookings));
-            renderTable();
-            closeModal();
+            const id = document.getElementById('modalRoomId').value;
+            const d = document.getElementById('startDate').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && d >= b.start && d <= b.end));
+            saveAndRefresh(); closeModal();
         }
 
-        init();
+        // --- FIXED: DOWNLOAD EXCEL FUNCTION ---
+        function downloadExcel() {
+            if(!activeHouse) return;
+            
+            // 1. Get the list of rooms that ACTUALLY exist right now in the active house
+            const currentRoomIds = houseRooms[activeHouse] || [];
+            
+            // 2. Filter bookings: must match house AND the roomId must exist in the current room list
+            const validBookings = bookings.filter(b => 
+                b.house === activeHouse && 
+                currentRoomIds.includes(Number(b.roomId))
+            ).sort((a,b) => new Date(a.start) - new Date(b.start));
+
+            if (validBookings.length === 0) return alert('No active bookings to export for ' + activeHouse);
+
+            // 3. Map to Excel rows using the current labels
+            const exportData = validBookings.map(b => {
+                const label = (roomNames[activeHouse] && roomNames[activeHouse][b.roomId]) 
+                              ? roomNames[activeHouse][b.roomId] 
+                              : "Room " + b.roomId;
+                return {
+                    "House": b.house,
+                    "Room Label": label,
+                    "Resident Details": b.members,
+                    "Check-In": b.start,
+                    "Check-Out": b.end
+                };
+            });
+
+            const ws = XLSX.utils.json_to_sheet(exportData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Bookings");
+            XLSX.writeFile(wb, `Report_${activeHouse}_${new Date().toLocaleDateString()}.xlsx`);
+        }
+
+        function changeMonth(dir) { currentDate.setMonth(currentDate.getMonth() + dir); renderTable(); }
+        document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>
