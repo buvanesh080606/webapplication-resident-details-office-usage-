@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ResiRoom Pro | Clean Export</title>
+    <title>ResiRoom Pro | Cloud Sync</title>
     
-    <link rel="icon" type="image/png" href="icon.png?v=5">
-    <link rel="apple-touch-icon" href="icon.png?v=5">
-
+    <!-- External Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
@@ -19,8 +18,8 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .booked { background-color: #ef4444 !important; color: white !important; border: 1px solid #dc2626; }
         input.room-edit { border: none; background: transparent; font-weight: 700; width: 100%; color: #4338ca; font-size: 0.85rem; }
-        input, textarea { user-select: text !important; -webkit-user-select: text !important; }
-        .del-btn { padding: 10px; cursor: pointer; }
+        .sync-indicator { font-size: 9px; font-weight: bold; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+        tr:hover { background-color: #f8fafc; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 pb-24">
@@ -29,7 +28,8 @@
     <header class="bg-indigo-700 text-white sticky top-0 z-40 shadow-xl">
         <div class="p-4 flex justify-between items-center border-b border-indigo-600">
             <h1 class="text-xl font-extrabold flex items-center gap-2">
-                <i data-lucide="building"></i> ResiRoom
+                <i data-lucide="building"></i> ResiRoom 
+                <span id="syncStatus" class="sync-indicator bg-amber-500">Connecting...</span>
             </h1>
             <div class="flex items-center gap-2">
                 <button onclick="changeMonth(-1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-left"></i></button>
@@ -41,29 +41,25 @@
         <div class="p-4 bg-indigo-800">
             <label class="block text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Active House Selection</label>
             <div class="relative">
-                <select id="houseDropdown" onchange="switchHouse(this.value)" class="w-full bg-white text-indigo-900 font-bold p-3 rounded-xl appearance-none outline-none shadow-lg">
-                </select>
+                <select id="houseDropdown" onchange="switchHouse(this.value)" class="w-full bg-white text-indigo-900 font-bold p-3 rounded-xl appearance-none outline-none shadow-lg"></select>
                 <i data-lucide="chevron-down" class="absolute right-3 top-3.5 w-4 h-4 text-indigo-400 pointer-events-none"></i>
             </div>
         </div>
 
         <div class="flex bg-indigo-900 px-2 py-2 gap-2">
-            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md active:scale-95 transition">
-                <i data-lucide="download" class="w-4 h-4"></i> Export Excel
+            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
+                <i data-lucide="download" class="w-4 h-4"></i> Export
             </button>
-            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md active:scale-95 transition">
+            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
                 <i data-lucide="plus-circle" class="w-4 h-4"></i> Settings
             </button>
         </div>
     </header>
 
-    <!-- Main Grid -->
     <main class="w-full overflow-hidden">
         <div class="overflow-x-auto no-scrollbar" id="gridWrapper">
             <table class="w-full border-collapse bg-white">
-                <thead>
-                    <tr id="tableHeader" class="bg-slate-100 border-b border-slate-200"></tr>
-                </thead>
+                <thead><tr id="tableHeader" class="bg-slate-100 border-b border-slate-200"></tr></thead>
                 <tbody id="tableBody"></tbody>
             </table>
             <div class="p-6 bg-white border-t border-slate-100 flex justify-center">
@@ -74,7 +70,7 @@
         </div>
     </main>
 
-    <!-- House Management Panel -->
+    <!-- House Settings Modal -->
     <div id="housePanel" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
             <div class="flex justify-between items-center mb-6">
@@ -83,10 +79,8 @@
             </div>
             <div class="space-y-4">
                 <div class="flex gap-2">
-                    <input type="text" id="newHouseInput" placeholder="House Name..." class="flex-1 bg-slate-50 p-3 rounded-xl border-2 border-slate-100 focus:border-indigo-400 outline-none font-bold">
-                    <button onclick="addHouse()" class="bg-indigo-600 text-white px-4 rounded-xl flex items-center justify-center">
-                        <i data-lucide="plus"></i>
-                    </button>
+                    <input type="text" id="newHouseInput" placeholder="House Name..." class="flex-1 bg-slate-50 p-3 rounded-xl border-2 border-slate-100 outline-none font-bold">
+                    <button onclick="addHouse()" class="bg-indigo-600 text-white px-4 rounded-xl"><i data-lucide="plus"></i></button>
                 </div>
                 <div id="houseList" class="max-h-60 overflow-y-auto space-y-2 py-2"></div>
                 <button onclick="toggleHousePanel(false)" class="w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-500 text-sm">Close</button>
@@ -97,7 +91,7 @@
     <!-- Booking Modal -->
     <div id="bookingModal" class="fixed inset-0 bg-black/60 z-[60] hidden flex items-end justify-center p-4">
         <div class="bg-white w-full max-w-md rounded-t-[2.5rem] rounded-b-[2.5rem] p-8 shadow-2xl">
-            <h2 id="modalTitle" class="text-2xl font-black mb-1">Update Info</h2>
+            <h2 id="modalTitle" class="text-2xl font-black mb-1">Room Update</h2>
             <p id="modalSubtitle" class="text-xs text-indigo-500 font-bold uppercase tracking-widest mb-6"></p>
             <form id="bookingForm" class="space-y-4">
                 <input type="hidden" id="modalRoomId">
@@ -116,40 +110,109 @@
     </div>
 
     <script>
+        // --- SUPABASE CONFIGURATION ---
+        const SB_URL = "https://ahtzrmrtbloiwukbpsvt.supabase.co"; 
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodHpybXJ0YmxvaXd1a2Jwc3Z0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTA0NDcsImV4cCI6MjA4OTY4NjQ0N30.StIqTuJWEPnlLRIC3jxlfSm5aX4RB4kLBboIDD7S_DM";
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+
         let currentDate = new Date();
-        let houseLibrary = JSON.parse(localStorage.getItem('houseLib')) || [];
-        let activeHouse = localStorage.getItem('activeHouse') || (houseLibrary[0] || "");
-        let houseRooms = JSON.parse(localStorage.getItem('houseRooms')) || {};
-        let roomNames = JSON.parse(localStorage.getItem('roomNames')) || {};
-        let bookings = JSON.parse(localStorage.getItem('roomBookings')) || [];
+        
+        // --- HYBRID DATA STATE (Load Local Backup First) ---
+        let houseLibrary = JSON.parse(localStorage.getItem('backup_lib')) || [];
+        let activeHouse = localStorage.getItem('backup_active') || "";
+        let houseRooms = JSON.parse(localStorage.getItem('backup_rooms')) || {};
+        let roomNames = JSON.parse(localStorage.getItem('backup_names')) || {};
+        let bookings = JSON.parse(localStorage.getItem('backup_bookings')) || [];
 
-        function init() {
+        async function init() {
+            // Step 1: Immediately render using local memory (fast & works offline)
+            renderAll();
+            
+            setSyncStatus('SYNCING', 'bg-amber-500');
+            
+            try {
+                // Step 2: Fetch latest from Cloud
+                const { data, error } = await _supabase.from('resi_data').select('content').eq('id', 1).maybeSingle();
+                
+                if (data && data.content) {
+                    const cloud = data.content;
+                    houseLibrary = cloud.houseLibrary || [];
+                    activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
+                    houseRooms = cloud.houseRooms || {};
+                    roomNames = cloud.roomNames || {};
+                    bookings = cloud.bookings || [];
+                    
+                    updateLocalBackup(); // Sync cloud back to phone memory
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                } else {
+                    // Initialize cloud if it's a brand new database
+                    await _supabase.from('resi_data').insert([{ id: 1, content: { houseLibrary, houseRooms, roomNames, bookings } }]);
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                }
+                renderAll();
+                subscribeToChanges();
+            } catch (e) {
+                setSyncStatus('OFFLINE', 'bg-red-500');
+                console.warn("Using offline mode.");
+            }
+        }
+
+        // Save to BOTH Local and Cloud
+        async function saveToCloud() {
+            // Update phone memory instantly
+            updateLocalBackup();
+            
+            setSyncStatus('SAVING...', 'bg-blue-500');
+            const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
+            
+            try {
+                const { error } = await _supabase.from('resi_data').update({ content: payload }).eq('id', 1);
+                if (!error) {
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                } else {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                }
+            } catch (err) {
+                setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+            }
+        }
+
+        function updateLocalBackup() {
+            localStorage.setItem('backup_lib', JSON.stringify(houseLibrary));
+            localStorage.setItem('backup_active', activeHouse);
+            localStorage.setItem('backup_rooms', JSON.stringify(houseRooms));
+            localStorage.setItem('backup_names', JSON.stringify(roomNames));
+            localStorage.setItem('backup_bookings', JSON.stringify(bookings));
+        }
+
+        function subscribeToChanges() {
+            _supabase.channel('sync').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resi_data' }, payload => {
+                const cloud = payload.new.content;
+                houseLibrary = cloud.houseLibrary;
+                houseRooms = cloud.houseRooms;
+                roomNames = cloud.roomNames;
+                bookings = cloud.bookings;
+                updateLocalBackup();
+                renderAll();
+            }).subscribe();
+        }
+
+        function setSyncStatus(text, colorClass) {
+            const status = document.getElementById('syncStatus');
+            status.innerText = text;
+            status.className = `sync-indicator ${colorClass} text-white ml-2`;
+        }
+
+        function renderAll() {
             renderHouseDropdown();
-            renderTable();
             renderHouseList();
-            lucide.createIcons();
-            if(houseLibrary.length === 0) setTimeout(() => toggleHousePanel(true), 500);
-        }
-
-        function switchHouse(val) { activeHouse = val; localStorage.setItem('activeHouse', val); renderTable(); }
-        function toggleHousePanel(show) { document.getElementById('housePanel').classList.toggle('hidden', !show); }
-
-        function renderHouseDropdown() {
-            const select = document.getElementById('houseDropdown');
-            if(houseLibrary.length === 0) { select.innerHTML = '<option value="">+ Add House</option>'; return; }
-            select.innerHTML = houseLibrary.map(h => `<option value="${h}" ${h === activeHouse ? 'selected' : ''}>${h}</option>`).join('');
-        }
-
-        function renderHouseList() {
-            const list = document.getElementById('houseList');
-            list.innerHTML = houseLibrary.map((h, i) => `
-                <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border mb-2">
-                    <span class="font-bold text-indigo-900">${h}</span>
-                    <button onclick="removeHouse(${i})" class="text-red-400 p-2"><i data-lucide="trash-2"></i></button>
-                </div>
-            `).join('');
+            renderTable();
             lucide.createIcons();
         }
+
+        // --- ORIGINAL APP LOGIC ---
+
+        function switchHouse(val) { activeHouse = val; renderTable(); saveToCloud(); }
 
         function addHouse() {
             const inp = document.getElementById('newHouseInput');
@@ -158,73 +221,60 @@
                 houseLibrary.push(name);
                 houseRooms[name] = [1,2,3,4,5,6,7,8,9,10,11,12];
                 if(!activeHouse) activeHouse = name;
-                saveAndRefresh();
                 inp.value = '';
+                saveAndRefresh();
             }
         }
 
         function removeHouse(idx) {
             if(confirm('Delete house and all its data?')) {
                 const deleted = houseLibrary.splice(idx, 1)[0];
-                bookings = bookings.filter(b => b.house !== deleted);
                 delete houseRooms[deleted];
-                delete roomNames[deleted];
                 if (activeHouse === deleted) activeHouse = houseLibrary[0] || "";
                 saveAndRefresh();
             }
         }
 
         function addNewRoom() {
-            if(!activeHouse) return alert("Select a house first!");
+            if(!activeHouse) return alert("Add a house first!");
             if(!houseRooms[activeHouse]) houseRooms[activeHouse] = [];
-            const newId = Date.now(); 
-            houseRooms[activeHouse].push(newId);
+            houseRooms[activeHouse].push(Date.now());
             saveAndRefresh();
         }
 
         function removeRoomRow(roomId) {
-            if(confirm(`Delete this room row and all its bookings permanently?`)) {
+            if(confirm('Delete room row permanently?')) {
                 houseRooms[activeHouse] = houseRooms[activeHouse].filter(id => id != roomId);
-                // CLEANUP: Immediately purge all bookings tied to this specific room and house
                 bookings = bookings.filter(b => !(b.roomId == roomId && b.house === activeHouse));
-                if(roomNames[activeHouse]) delete roomNames[activeHouse][roomId];
                 saveAndRefresh();
             }
         }
 
-        function saveAndRefresh() {
-            localStorage.setItem('houseLib', JSON.stringify(houseLibrary));
-            localStorage.setItem('houseRooms', JSON.stringify(houseRooms));
-            localStorage.setItem('roomBookings', JSON.stringify(bookings));
-            localStorage.setItem('roomNames', JSON.stringify(roomNames));
-            localStorage.setItem('activeHouse', activeHouse);
-            renderHouseDropdown();
-            renderHouseList();
-            renderTable();
-        }
-
         function saveRoomLabel(id, val) {
-            if (!activeHouse) return;
             if (!roomNames[activeHouse]) roomNames[activeHouse] = {};
             roomNames[activeHouse][id] = val;
-            localStorage.setItem('roomNames', JSON.stringify(roomNames));
+            saveToCloud();
         }
+
+        function saveAndRefresh() { renderAll(); saveToCloud(); }
 
         function renderTable() {
             const wrapper = document.getElementById('tableBody');
             const header = document.getElementById('tableHeader');
             if (!activeHouse || !houseRooms[activeHouse]) {
                 header.innerHTML = '';
-                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No Rooms found</td></tr>';
+                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No data. Click Settings to add a house.</td></tr>';
                 return;
             }
             const month = currentDate.getMonth();
             const year = currentDate.getFullYear();
             const daysCount = new Date(year, month + 1, 0).getDate();
             document.getElementById('currentMonthYear').innerText = `${currentDate.toLocaleString('default', { month: 'long' })} ${year}`;
+            
             let hHtml = `<th class="sticky-col px-4 py-4 text-left text-[9px] font-black text-slate-400 uppercase min-w-[170px]">Room Label</th>`;
             for (let d = 1; d <= daysCount; d++) hHtml += `<th class="px-4 py-4 text-center text-[10px] font-bold text-slate-500 border-r border-slate-100 min-w-[48px]">${d}</th>`;
             header.innerHTML = hHtml;
+
             let bHtml = '';
             houseRooms[activeHouse].forEach(id => {
                 const label = (roomNames[activeHouse] && roomNames[activeHouse][id]) ? roomNames[activeHouse][id] : `Room ${id}`;
@@ -232,7 +282,7 @@
                     <td class="sticky-col px-1 py-3 bg-white">
                         <div class="flex items-center">
                             <button onclick="removeRoomRow(${id})" class="p-2 text-red-300 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                            <input type="text" class="room-edit" value="${label}" onchange="saveRoomLabel(${id}, this.value)" placeholder="Name">
+                            <input type="text" class="room-edit" value="${label}" onchange="saveRoomLabel(${id}, this.value)">
                         </div>
                     </td>`;
                 for (let d = 1; d <= daysCount; d++) {
@@ -250,9 +300,8 @@
 
         function handleCellClick(id, date) {
             const b = bookings.find(x => x.roomId == id && x.house === activeHouse && date >= x.start && date <= x.end);
-            const label = (roomNames[activeHouse] && roomNames[activeHouse][id]) ? roomNames[activeHouse][id] : `Room ${id}`;
             document.getElementById('modalRoomId').value = id;
-            document.getElementById('modalSubtitle').innerText = `${activeHouse} | ${label}`;
+            document.getElementById('modalSubtitle').innerText = `House: ${activeHouse}`;
             if (b) {
                 document.getElementById('members').value = b.members;
                 document.getElementById('startDate').value = b.start;
@@ -267,8 +316,6 @@
             document.getElementById('bookingModal').classList.remove('hidden');
         }
 
-        function closeModal() { document.getElementById('bookingModal').classList.add('hidden'); }
-
         document.getElementById('bookingForm').onsubmit = function(e) {
             e.preventDefault();
             const id = document.getElementById('modalRoomId').value;
@@ -277,52 +324,53 @@
             const m = document.getElementById('members').value;
             bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && ((s >= b.start && s <= b.end) || (en >= b.start && en <= b.end))));
             bookings.push({ roomId: id, house: activeHouse, start: s, end: en, members: m });
-            saveAndRefresh(); closeModal();
+            saveAndRefresh(); 
+            closeModal();
         };
 
         function deleteBooking() {
             const id = document.getElementById('modalRoomId').value;
             const d = document.getElementById('startDate').value;
             bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && d >= b.start && d <= b.end));
-            saveAndRefresh(); closeModal();
+            saveAndRefresh(); 
+            closeModal();
         }
 
-        // --- FIXED: DOWNLOAD EXCEL FUNCTION ---
         function downloadExcel() {
-            if(!activeHouse) return;
-            
-            // 1. Get the list of rooms that ACTUALLY exist right now in the active house
-            const currentRoomIds = houseRooms[activeHouse] || [];
-            
-            // 2. Filter bookings: must match house AND the roomId must exist in the current room list
-            const validBookings = bookings.filter(b => 
-                b.house === activeHouse && 
-                currentRoomIds.includes(Number(b.roomId))
-            ).sort((a,b) => new Date(a.start) - new Date(b.start));
-
-            if (validBookings.length === 0) return alert('No active bookings to export for ' + activeHouse);
-
-            // 3. Map to Excel rows using the current labels
-            const exportData = validBookings.map(b => {
-                const label = (roomNames[activeHouse] && roomNames[activeHouse][b.roomId]) 
-                              ? roomNames[activeHouse][b.roomId] 
-                              : "Room " + b.roomId;
-                return {
-                    "House": b.house,
-                    "Room Label": label,
-                    "Resident Details": b.members,
-                    "Check-In": b.start,
-                    "Check-Out": b.end
-                };
-            });
-
+            const validBookings = bookings.filter(b => b.house === activeHouse);
+            if (validBookings.length === 0) return alert('No bookings to export');
+            const exportData = validBookings.map(b => ({
+                "House": b.house,
+                "Resident Details": b.members,
+                "Start Date": b.start,
+                "End Date": b.end
+            }));
             const ws = XLSX.utils.json_to_sheet(exportData);
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Bookings");
-            XLSX.writeFile(wb, `Report_${activeHouse}_${new Date().toLocaleDateString()}.xlsx`);
+            XLSX.writeFile(wb, `ResiRoom_Export_${activeHouse}.xlsx`);
         }
 
+        function renderHouseDropdown() {
+            const select = document.getElementById('houseDropdown');
+            if(houseLibrary.length === 0) { select.innerHTML = '<option value="">+ Add House</option>'; return; }
+            select.innerHTML = houseLibrary.map(h => `<option value="${h}" ${h === activeHouse ? 'selected' : ''}>${h}</option>`).join('');
+        }
+
+        function renderHouseList() {
+            const list = document.getElementById('houseList');
+            list.innerHTML = houseLibrary.map((h, i) => `
+                <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border mb-2">
+                    <span class="font-bold text-indigo-900">${h}</span>
+                    <button onclick="removeHouse(${i})" class="text-red-400 p-2"><i data-lucide="trash-2"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function toggleHousePanel(show) { document.getElementById('housePanel').classList.toggle('hidden', !show); }
+        function closeModal() { document.getElementById('bookingModal').classList.add('hidden'); }
         function changeMonth(dir) { currentDate.setMonth(currentDate.getMonth() + dir); renderTable(); }
+        
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
