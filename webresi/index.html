@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- PWA & Mobile Optimization -->
+    <title>ResiRoom Pro | Cloud Sync</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4338ca">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ResiRoom">
+    <link rel="apple-touch-icon" href="resiroom_icon.png">
+
+    <!-- External Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        .sticky-col { position: sticky; left: 0; z-index: 20; background: white; border-right: 2px solid #f1f5f9; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .booked { background-color: #ef4444 !important; color: white !important; border: 1px solid #dc2626; }
+        input.room-edit { border: none; background: transparent; font-weight: 700; width: 100%; color: #4338ca; font-size: 0.85rem; }
+        .sync-indicator { font-size: 9px; font-weight: bold; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+        tr:hover { background-color: #f8fafc; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 pb-24">
+
+    <!-- Header -->
+    <header class="bg-indigo-700 text-white sticky top-0 z-40 shadow-xl">
+        <div class="p-4 flex justify-between items-center border-b border-indigo-600">
+            <h1 class="text-xl font-extrabold flex items-center gap-2">
+                <i data-lucide="building"></i> ResiRoom 
+                <span id="syncStatus" class="sync-indicator bg-amber-500">Connecting...</span>
+            </h1>
+            <div class="flex items-center gap-2">
+                <button onclick="changeMonth(-1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-left"></i></button>
+                <span id="currentMonthYear" class="font-bold text-xs uppercase w-28 text-center tracking-tighter"></span>
+                <button onclick="changeMonth(1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-right"></i></button>
+            </div>
+        </div>
+
+        <div class="p-4 bg-indigo-800">
+            <label class="block text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Active House Selection</label>
+            <div class="relative">
+                <select id="houseDropdown" onchange="switchHouse(this.value)" class="w-full bg-white text-indigo-900 font-bold p-3 rounded-xl appearance-none outline-none shadow-lg"></select>
+                <i data-lucide="chevron-down" class="absolute right-3 top-3.5 w-4 h-4 text-indigo-400 pointer-events-none"></i>
+            </div>
+        </div>
+
+        <div class="flex bg-indigo-900 px-2 py-2 gap-2">
+            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
+                <i data-lucide="download" class="w-4 h-4"></i> Export
+            </button>
+            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> Settings
+            </button>
+        </div>
+    </header>
+
+    <main class="w-full overflow-hidden">
+        <div class="overflow-x-auto no-scrollbar" id="gridWrapper">
+            <table class="w-full border-collapse bg-white">
+                <thead><tr id="tableHeader" class="bg-slate-100 border-b border-slate-200"></tr></thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+            <div class="p-6 bg-white border-t border-slate-100 flex justify-center">
+                <button onclick="addNewRoom()" class="flex items-center gap-2 px-8 py-4 bg-indigo-50 text-indigo-600 rounded-2xl font-bold text-sm hover:bg-indigo-100 transition active:scale-95">
+                    <i data-lucide="list-plus" class="w-5 h-5"></i> Add New Room Row
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- House Settings Modal -->
+    <div id="housePanel" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="font-extrabold text-lg text-indigo-900 tracking-tight">Manage Houses</h3>
+                <button onclick="toggleHousePanel(false)" class="text-slate-400"><i data-lucide="x"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div class="flex gap-2">
+                    <input type="text" id="newHouseInput" placeholder="House Name..." class="flex-1 bg-slate-50 p-3 rounded-xl border-2 border-slate-100 outline-none font-bold">
+                    <button onclick="addHouse()" class="bg-indigo-600 text-white px-4 rounded-xl"><i data-lucide="plus"></i></button>
+                </div>
+                <div id="houseList" class="max-h-60 overflow-y-auto space-y-2 py-2"></div>
+                <button onclick="toggleHousePanel(false)" class="w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-500 text-sm">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Booking Modal -->
+    <div id="bookingModal" class="fixed inset-0 bg-black/60 z-[60] hidden flex items-end justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-t-[2.5rem] rounded-b-[2.5rem] p-8 shadow-2xl">
+            <h2 id="modalTitle" class="text-2xl font-black mb-1">Room Update</h2>
+            <p id="modalSubtitle" class="text-xs text-indigo-500 font-bold uppercase tracking-widest mb-6"></p>
+            <form id="bookingForm" class="space-y-4">
+                <input type="hidden" id="modalRoomId">
+                <textarea id="members" placeholder="Enter Resident Names..." required class="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-indigo-500 outline-none h-24 font-semibold"></textarea>
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="date" id="startDate" required class="w-full p-3 bg-slate-50 border-none rounded-xl font-bold text-sm">
+                    <input type="date" id="endDate" required class="w-full p-3 bg-slate-50 border-none rounded-xl font-bold text-sm">
+                </div>
+                <div class="flex flex-col gap-3 pt-6">
+                    <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg">Save Booking</button>
+                    <button type="button" id="btnDelete" onclick="deleteBooking()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hidden border border-red-100">Delete Entry</button>
+                    <button type="button" onclick="closeModal()" class="w-full py-2 text-slate-400 font-bold text-sm text-center">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- PWA SERVICE WORKER REGISTRATION ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').then(reg => {
+                    console.log('SW Registered!', reg);
+                }).catch(err => {
+                    console.warn('SW registration failed:', err);
+                });
+            });
+        }
+
+        // --- SUPABASE CONFIGURATION ---
+        const SB_URL = "https://ahtzrmrtbloiwukbpsvt.supabase.co"; 
+        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodHpybXJ0YmxvaXd1a2Jwc3Z0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTA0NDcsImV4cCI6MjA4OTY4NjQ0N30.StIqTuJWEPnlLRIC3jxlfSm5aX4RB4kLBboIDD7S_DM";
+        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+
+        let currentDate = new Date();
+        
+        // --- HYBRID DATA STATE (Load Local Backup First) ---
+        let houseLibrary = JSON.parse(localStorage.getItem('backup_lib')) || [];
+        let activeHouse = localStorage.getItem('backup_active') || "";
+        let houseRooms = JSON.parse(localStorage.getItem('backup_rooms')) || {};
+        let roomNames = JSON.parse(localStorage.getItem('backup_names')) || {};
+        let bookings = JSON.parse(localStorage.getItem('backup_bookings')) || [];
+
+        async function init() {
+            // Step 1: Immediately render using local memory (fast & works offline)
+            renderAll();
+            
+            setSyncStatus('SYNCING', 'bg-amber-500');
+            
+            try {
+                // Step 2: Fetch latest from Cloud
+                const { data, error } = await _supabase.from('resi_data').select('content').eq('id', 1).maybeSingle();
+                
+                if (data && data.content) {
+                    const cloud = data.content;
+                    houseLibrary = cloud.houseLibrary || [];
+                    activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
+                    houseRooms = cloud.houseRooms || {};
+                    roomNames = cloud.roomNames || {};
+                    bookings = cloud.bookings || [];
+                    
+                    updateLocalBackup(); // Sync cloud back to phone memory
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                } else {
+                    // Initialize cloud if it's a brand new database
+                    await _supabase.from('resi_data').insert([{ id: 1, content: { houseLibrary, houseRooms, roomNames, bookings } }]);
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                }
+                renderAll();
+                subscribeToChanges();
+            } catch (e) {
+                setSyncStatus('OFFLINE', 'bg-red-500');
+                console.warn("Using offline mode.");
+            }
+        }
+
+        // Save to BOTH Local and Cloud
+        async function saveToCloud() {
+            updateLocalBackup();
+            setSyncStatus('SAVING...', 'bg-blue-500');
+            const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
+            
+            try {
+                const { error } = await _supabase.from('resi_data').update({ content: payload }).eq('id', 1);
+                if (!error) {
+                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                } else {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                }
+            } catch (err) {
+                setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+            }
+        }
+
+        function updateLocalBackup() {
+            localStorage.setItem('backup_lib', JSON.stringify(houseLibrary));
+            localStorage.setItem('backup_active', activeHouse);
+            localStorage.setItem('backup_rooms', JSON.stringify(houseRooms));
+            localStorage.setItem('backup_names', JSON.stringify(roomNames));
+            localStorage.setItem('backup_bookings', JSON.stringify(bookings));
+        }
+
+        function subscribeToChanges() {
+            _supabase.channel('sync').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resi_data' }, payload => {
+                const cloud = payload.new.content;
+                houseLibrary = cloud.houseLibrary;
+                houseRooms = cloud.houseRooms;
+                roomNames = cloud.roomNames;
+                bookings = cloud.bookings;
+                updateLocalBackup();
+                renderAll();
+            }).subscribe();
+        }
+
+        function setSyncStatus(text, colorClass) {
+            const status = document.getElementById('syncStatus');
+            status.innerText = text;
+            status.className = `sync-indicator ${colorClass} text-white ml-2`;
+        }
+
+        function renderAll() {
+            renderHouseDropdown();
+            renderHouseList();
+            renderTable();
+            lucide.createIcons();
+        }
+
+        // --- ORIGINAL APP LOGIC ---
+
+        function switchHouse(val) { activeHouse = val; renderTable(); saveToCloud(); }
+
+        function addHouse() {
+            const inp = document.getElementById('newHouseInput');
+            const name = inp.value.trim();
+            if (name && !houseLibrary.includes(name)) {
+                houseLibrary.push(name);
+                houseRooms[name] = [1,2,3,4,5,6,7,8,9,10,11,12];
+                if(!activeHouse) activeHouse = name;
+                inp.value = '';
+                saveAndRefresh();
+            }
+        }
+
+        function removeHouse(idx) {
+            if(confirm('Delete house and all its data?')) {
+                const deleted = houseLibrary.splice(idx, 1)[0];
+                delete houseRooms[deleted];
+                if (activeHouse === deleted) activeHouse = houseLibrary[0] || "";
+                saveAndRefresh();
+            }
+        }
+
+        function addNewRoom() {
+            if(!activeHouse) return alert("Add a house first!");
+            if(!houseRooms[activeHouse]) houseRooms[activeHouse] = [];
+            houseRooms[activeHouse].push(Date.now());
+            saveAndRefresh();
+        }
+
+        function removeRoomRow(roomId) {
+            if(confirm('Delete room row permanently?')) {
+                houseRooms[activeHouse] = houseRooms[activeHouse].filter(id => id != roomId);
+                bookings = bookings.filter(b => !(b.roomId == roomId && b.house === activeHouse));
+                saveAndRefresh();
+            }
+        }
+
+        function saveRoomLabel(id, val) {
+            if (!roomNames[activeHouse]) roomNames[activeHouse] = {};
+            roomNames[activeHouse][id] = val;
+            saveToCloud();
+        }
+
+        function saveAndRefresh() { renderAll(); saveToCloud(); }
+
+        function renderTable() {
+            const wrapper = document.getElementById('tableBody');
+            const header = document.getElementById('tableHeader');
+            if (!activeHouse || !houseRooms[activeHouse]) {
+                header.innerHTML = '';
+                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No data. Click Settings to add a house.</td></tr>';
+                return;
+            }
+            const month = currentDate.getMonth();
+            const year = currentDate.getFullYear();
+            const daysCount = new Date(year, month + 1, 0).getDate();
+            document.getElementById('currentMonthYear').innerText = `${currentDate.toLocaleString('default', { month: 'long' })} ${year}`;
+            
+            let hHtml = `<th class="sticky-col px-4 py-4 text-left text-[9px] font-black text-slate-400 uppercase min-w-[170px]">Room Label</th>`;
+            for (let d = 1; d <= daysCount; d++) hHtml += `<th class="px-4 py-4 text-center text-[10px] font-bold text-slate-500 border-r border-slate-100 min-w-[48px]">${d}</th>`;
+            header.innerHTML = hHtml;
+
+            let bHtml = '';
+            houseRooms[activeHouse].forEach(id => {
+                const label = (roomNames[activeHouse] && roomNames[activeHouse][id]) ? roomNames[activeHouse][id] : `Room ${id}`;
+                bHtml += `<tr class="border-b border-slate-100">
+                    <td class="sticky-col px-1 py-3 bg-white">
+                        <div class="flex items-center">
+                            <button onclick="removeRoomRow(${id})" class="p-2 text-red-300 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            <input type="text" class="room-edit" value="${label}" onchange="saveRoomLabel(${id}, this.value)">
+                        </div>
+                    </td>`;
+                for (let d = 1; d <= daysCount; d++) {
+                    const dStr = `${year}-${(month+1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+                    const b = bookings.find(x => x.roomId == id && x.house === activeHouse && dStr >= x.start && dStr <= x.end);
+                    bHtml += `<td onclick="handleCellClick(${id}, '${dStr}')" class="text-center border-r border-slate-50 transition-all cursor-pointer ${b ? 'booked' : ''}">
+                        ${b ? '<i data-lucide="user" class="w-4 h-4 mx-auto"></i>' : ''}
+                    </td>`;
+                }
+                bHtml += '</tr>';
+            });
+            wrapper.innerHTML = bHtml;
+            lucide.createIcons();
+        }
+
+        function handleCellClick(id, date) {
+            const b = bookings.find(x => x.roomId == id && x.house === activeHouse && date >= x.start && date <= x.end);
+            document.getElementById('modalRoomId').value = id;
+            document.getElementById('modalSubtitle').innerText = `House: ${activeHouse}`;
+            if (b) {
+                document.getElementById('members').value = b.members;
+                document.getElementById('startDate').value = b.start;
+                document.getElementById('endDate').value = b.end;
+                document.getElementById('btnDelete').classList.remove('hidden');
+            } else {
+                document.getElementById('members').value = '';
+                document.getElementById('startDate').value = date;
+                document.getElementById('endDate').value = date;
+                document.getElementById('btnDelete').classList.add('hidden');
+            }
+            document.getElementById('bookingModal').classList.remove('hidden');
+        }
+
+        document.getElementById('bookingForm').onsubmit = function(e) {
+            e.preventDefault();
+            const id = document.getElementById('modalRoomId').value;
+            const s = document.getElementById('startDate').value;
+            const en = document.getElementById('endDate').value;
+            const m = document.getElementById('members').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && ((s >= b.start && s <= b.end) || (en >= b.start && en <= b.end))));
+            bookings.push({ roomId: id, house: activeHouse, start: s, end: en, members: m });
+            saveAndRefresh(); 
+            closeModal();
+        };
+
+        function deleteBooking() {
+            const id = document.getElementById('modalRoomId').value;
+            const d = document.getElementById('startDate').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && d >= b.start && d <= b.end));
+            saveAndRefresh(); 
+            closeModal();
+        }
+
+        function downloadExcel() {
+            const validBookings = bookings.filter(b => b.house === activeHouse);
+            if (validBookings.length === 0) return alert('No bookings to export');
+            
+            // 1. Prepare the data header
+            let table = `<table border="1">
+                <tr style="background-color: #4338ca; color: white; font-weight: bold;">
+                    <th>House</th>
+                    <th>Room / Label</th>
+                    <th>Resident Details</th>
+                    <th>Start Date</th>
+                    <th>End Date</th>
+                </tr>`;
+
+            // 2. Add the rows
+            validBookings.forEach(b => {
+                const label = (roomNames[activeHouse] && roomNames[activeHouse][b.roomId]) 
+                    ? roomNames[activeHouse][b.roomId] 
+                    : `Room ${b.roomId}`;
+                
+                table += `<tr>
+                    <td>${b.house}</td>
+                    <td>${label}</td>
+                    <td>${b.members.replace(/\n/g, " ")}</td>
+                    <td>${b.start}</td>
+                    <td>${b.end}</td>
+                </tr>`;
+            });
+            table += `</table>`;
+
+            // 3. Create a Blob with a Universal Excel format
+            const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const safeName = activeHouse.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            
+            // 4. Download as .xls (Most compatible format in the world)
+            a.href = url;
+            a.download = `ResiRoom_Data_${safeName}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 0);
+        }
+
+        function renderHouseDropdown() {
+            const select = document.getElementById('houseDropdown');
+            if(houseLibrary.length === 0) { select.innerHTML = '<option value="">+ Add House</option>'; return; }
+            select.innerHTML = houseLibrary.map(h => `<option value="${h}" ${h === activeHouse ? 'selected' : ''}>${h}</option>`).join('');
+        }
+
+        function renderHouseList() {
+            const list = document.getElementById('houseList');
+            list.innerHTML = houseLibrary.map((h, i) => `
+                <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border mb-2">
+                    <span class="font-bold text-indigo-900">${h}</span>
+                    <button onclick="removeHouse(${i})" class="text-red-400 p-2"><i data-lucide="trash-2"></i></button>
+                </div>
+            `).join('');
+        }
+
+        function toggleHousePanel(show) { document.getElementById('housePanel').classList.toggle('hidden', !show); }
+        function closeModal() { document.getElementById('bookingModal').classList.add('hidden'); }
+        function changeMonth(dir) { currentDate.setMonth(currentDate.getMonth() + dir); renderTable(); }
+        
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
