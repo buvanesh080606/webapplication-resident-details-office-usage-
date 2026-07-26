@@ -3,8 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ResiRoom Pro | Cloud Sync</title>
     
+    <!-- PWA & Mobile Optimization -->
+    <title>ResiRoom Pro | Cloud Sync</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4338ca">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ResiRoom">
+    <link rel="apple-touch-icon" href="resiroom_icon.png">
+
     <!-- External Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -110,12 +118,35 @@
     </div>
 
     <script>
+        // --- PWA SERVICE WORKER REGISTRATION & AUTO-UPDATE ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').then(reg => {
+                    console.log('SW Registered!', reg);
+                    reg.onupdatefound = () => {
+                        const installingWorker = reg.installing;
+                        if (installingWorker) {
+                            installingWorker.onstatechange = () => {
+                                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('New SW found, reloading page...');
+                                    window.location.reload();
+                                }
+                            };
+                        }
+                    };
+                }).catch(err => {
+                    console.warn('SW registration failed:', err);
+                });
+            });
+        }
+
         // --- SUPABASE CONFIGURATION ---
         const SB_URL = "https://ahtzrmrtbloiwukbpsvt.supabase.co"; 
         const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodHpybXJ0YmxvaXd1a2Jwc3Z0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTA0NDcsImV4cCI6MjA4OTY4NjQ0N30.StIqTuJWEPnlLRIC3jxlfSm5aX4RB4kLBboIDD7S_DM";
         const _supabase = supabase.createClient(SB_URL, SB_KEY);
 
         let currentDate = new Date();
+        let realtimeChannel = null;
         
         // --- HYBRID DATA STATE (Load Local Backup First) ---
         let houseLibrary = JSON.parse(localStorage.getItem('backup_lib')) || [];
@@ -128,51 +159,71 @@
             // Step 1: Immediately render using local memory (fast & works offline)
             renderAll();
             
-            setSyncStatus('SYNCING', 'bg-amber-500');
-            
+            // Step 2: Fetch latest data from cloud
+            await fetchFromCloud();
+
+            // Step 3: Enable realtime subscriptions and auto-sync listeners
+            subscribeToChanges();
+            setupBackgroundSync();
+        }
+
+        async function fetchFromCloud(silent = false) {
+            if (!silent) setSyncStatus('SYNCING', 'bg-amber-500');
             try {
-                // Step 2: Fetch latest from Cloud
                 const { data, error } = await _supabase.from('resi_data').select('content').eq('id', 1).maybeSingle();
                 
+                if (error) {
+                    console.error("Cloud fetch error:", error);
+                    setSyncStatus('SYNC ERROR', 'bg-red-500');
+                    return;
+                }
+
                 if (data && data.content) {
-                    const cloud = data.content;
-                    houseLibrary = cloud.houseLibrary || [];
-                    activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
-                    houseRooms = cloud.houseRooms || {};
-                    roomNames = cloud.roomNames || {};
-                    bookings = cloud.bookings || [];
-                    
-                    updateLocalBackup(); // Sync cloud back to phone memory
+                    applyCloudData(data.content);
                     setSyncStatus('ONLINE', 'bg-emerald-500');
                 } else {
-                    // Initialize cloud if it's a brand new database
-                    await _supabase.from('resi_data').insert([{ id: 1, content: { houseLibrary, houseRooms, roomNames, bookings } }]);
+                    // Initialize cloud if brand new row
+                    const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
+                    await _supabase.from('resi_data').upsert({ id: 1, content: payload });
                     setSyncStatus('ONLINE', 'bg-emerald-500');
                 }
-                renderAll();
-                subscribeToChanges();
             } catch (e) {
+                console.error("Fetch exception:", e);
                 setSyncStatus('OFFLINE', 'bg-red-500');
-                console.warn("Using offline mode.");
             }
         }
 
-        // Save to BOTH Local and Cloud
-        async function saveToCloud() {
-            // Update phone memory instantly
+        function applyCloudData(cloud) {
+            if (!cloud) return;
+            houseLibrary = cloud.houseLibrary || [];
+            houseRooms = cloud.houseRooms || {};
+            roomNames = cloud.roomNames || {};
+            bookings = cloud.bookings || [];
+
+            if (!activeHouse || !houseLibrary.includes(activeHouse)) {
+                activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
+            }
+
             updateLocalBackup();
-            
+            renderAll();
+        }
+
+        // Save to BOTH Local and Cloud using UPSERT
+        async function saveToCloud() {
+            updateLocalBackup();
             setSyncStatus('SAVING...', 'bg-blue-500');
             const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
             
             try {
-                const { error } = await _supabase.from('resi_data').update({ content: payload }).eq('id', 1);
+                const { error } = await _supabase.from('resi_data').upsert({ id: 1, content: payload });
                 if (!error) {
                     setSyncStatus('ONLINE', 'bg-emerald-500');
                 } else {
-                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    console.error("Supabase Save Error:", error);
+                    setSyncStatus('SYNC ERROR', 'bg-red-500');
                 }
             } catch (err) {
+                console.error("Save Exception:", err);
                 setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
             }
         }
@@ -186,21 +237,50 @@
         }
 
         function subscribeToChanges() {
-            _supabase.channel('sync').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resi_data' }, payload => {
-                const cloud = payload.new.content;
-                houseLibrary = cloud.houseLibrary;
-                houseRooms = cloud.houseRooms;
-                roomNames = cloud.roomNames;
-                bookings = cloud.bookings;
-                updateLocalBackup();
-                renderAll();
-            }).subscribe();
+            if (realtimeChannel) {
+                _supabase.removeChannel(realtimeChannel);
+            }
+
+            realtimeChannel = _supabase.channel('resi_realtime_sync')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'resi_data' }, payload => {
+                    if (payload.new && payload.new.content) {
+                        applyCloudData(payload.new.content);
+                    }
+                })
+                .subscribe((status, err) => {
+                    console.log("Realtime status:", status, err);
+                    if (status === 'SUBSCRIBED') {
+                        setSyncStatus('ONLINE', 'bg-emerald-500');
+                    } else if (status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT') {
+                        setSyncStatus('RECONNECTING...', 'bg-amber-500');
+                        setTimeout(subscribeToChanges, 4000);
+                    }
+                });
+        }
+
+        function setupBackgroundSync() {
+            // Auto re-sync when tab regains focus or phone is unlocked
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    fetchFromCloud(true);
+                }
+            });
+            window.addEventListener('focus', () => fetchFromCloud(true));
+            window.addEventListener('online', () => {
+                fetchFromCloud();
+                subscribeToChanges();
+            });
+
+            // 10-second polling fallback to guarantee real-time sync across devices
+            setInterval(() => fetchFromCloud(true), 10000);
         }
 
         function setSyncStatus(text, colorClass) {
             const status = document.getElementById('syncStatus');
-            status.innerText = text;
-            status.className = `sync-indicator ${colorClass} text-white ml-2`;
+            if (status) {
+                status.innerText = text;
+                status.className = `sync-indicator ${colorClass} text-white ml-2`;
+            }
         }
 
         function renderAll() {
@@ -322,7 +402,7 @@
             const s = document.getElementById('startDate').value;
             const en = document.getElementById('endDate').value;
             const m = document.getElementById('members').value;
-            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && ((s >= b.start && s <= b.end) || (en >= b.start && en <= b.end))));
+            bookings = bookings.filter(b => !(b.roomId == id && b.house === activeHouse && !(s > b.end || en < b.start)));
             bookings.push({ roomId: id, house: activeHouse, start: s, end: en, members: m });
             saveAndRefresh(); 
             closeModal();
@@ -330,25 +410,49 @@
 
         function deleteBooking() {
             const id = document.getElementById('modalRoomId').value;
-            const d = document.getElementById('startDate').value;
-            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && d >= b.start && d <= b.end));
+            const s = document.getElementById('startDate').value;
+            const en = document.getElementById('endDate').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house === activeHouse && !(s > b.end || en < b.start)));
             saveAndRefresh(); 
             closeModal();
         }
 
         function downloadExcel() {
             const validBookings = bookings.filter(b => b.house === activeHouse);
-            if (validBookings.length === 0) return alert('No bookings to export');
-            const exportData = validBookings.map(b => ({
-                "House": b.house,
-                "Resident Details": b.members,
-                "Start Date": b.start,
-                "End Date": b.end
-            }));
-            const ws = XLSX.utils.json_to_sheet(exportData);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Bookings");
-            XLSX.writeFile(wb, `ResiRoom_Export_${activeHouse}.xlsx`);
+            if (validBookings.length === 0) return alert('No bookings to export for ' + (activeHouse || 'selected house'));
+            
+            const exportData = validBookings.map(b => {
+                const label = (roomNames[activeHouse] && roomNames[activeHouse][b.roomId]) 
+                    ? roomNames[activeHouse][b.roomId] 
+                    : `Room ${b.roomId}`;
+                return {
+                    "House": b.house,
+                    "Room / Label": label,
+                    "Resident Details": b.members ? b.members.replace(/\n/g, ", ") : "",
+                    "Start Date": b.start,
+                    "End Date": b.end
+                };
+            });
+
+            // 1. Create worksheet using SheetJS (XLSX)
+            const worksheet = XLSX.utils.json_to_sheet(exportData);
+
+            // 2. Set custom column widths for optimum formatting
+            worksheet['!cols'] = [
+                { wch: 15 }, // House
+                { wch: 20 }, // Room / Label
+                { wch: 35 }, // Resident Details
+                { wch: 15 }, // Start Date
+                { wch: 15 }  // End Date
+            ];
+
+            // 3. Create workbook and append worksheet
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, activeHouse || "Bookings");
+
+            // 4. Generate clean filename and download genuine .xlsx file
+            const safeName = (activeHouse || "Bookings").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            XLSX.writeFile(workbook, `ResiRoom_Data_${safeName}.xlsx`);
         }
 
         function renderHouseDropdown() {
