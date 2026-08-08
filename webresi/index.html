@@ -18,6 +18,10 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Firebase Compat SDKs (100% Free 24/7 Google Cloud Database) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
@@ -26,7 +30,8 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .booked { background-color: #ef4444 !important; color: white !important; border: 1px solid #dc2626; }
         input.room-edit { border: none; background: transparent; font-weight: 700; width: 100%; color: #4338ca; font-size: 0.85rem; }
-        .sync-indicator { font-size: 9px; font-weight: bold; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+        .sync-indicator { font-size: 9px; font-weight: bold; padding: 3px 10px; border-radius: 20px; text-transform: uppercase; cursor: pointer; transition: all 0.2s; }
+        .sync-indicator:hover { opacity: 0.9; transform: scale(1.03); }
         tr:hover { background-color: #f8fafc; }
     </style>
 </head>
@@ -37,7 +42,7 @@
         <div class="p-4 flex justify-between items-center border-b border-indigo-600">
             <h1 class="text-xl font-extrabold flex items-center gap-2">
                 <i data-lucide="building"></i> ResiRoom 
-                <span id="syncStatus" class="sync-indicator bg-amber-500">Connecting...</span>
+                <button onclick="toggleDbPanel(true)" id="syncStatus" class="sync-indicator bg-amber-500 shadow" title="Click to view & configure database settings">Connecting...</button>
             </h1>
             <div class="flex items-center gap-2">
                 <button onclick="changeMonth(-1)" class="p-1 hover:bg-indigo-500 rounded"><i data-lucide="chevron-left"></i></button>
@@ -55,16 +60,28 @@
         </div>
 
         <div class="flex bg-indigo-900 px-2 py-2 gap-2">
-            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
-                <i data-lucide="download" class="w-4 h-4"></i> Export
+            <button onclick="downloadExcel()" class="flex-1 bg-emerald-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md hover:bg-emerald-600 active:scale-95 transition">
+                <i data-lucide="download" class="w-4 h-4"></i> Export Excel
             </button>
-            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md">
-                <i data-lucide="plus-circle" class="w-4 h-4"></i> Settings
+            <button onclick="toggleDbPanel(true)" class="flex-1 bg-sky-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md hover:bg-sky-600 active:scale-95 transition">
+                <i data-lucide="database" class="w-4 h-4"></i> Database Settings
+            </button>
+            <button onclick="toggleHousePanel(true)" class="flex-1 bg-indigo-500 text-white text-[10px] font-bold uppercase py-3 rounded-lg flex items-center justify-center gap-1 shadow-md hover:bg-indigo-600 active:scale-95 transition">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> Manage Houses
             </button>
         </div>
     </header>
 
     <main class="w-full overflow-hidden">
+        <!-- Error Alert Banner if DB is down -->
+        <div id="dbErrorBanner" class="hidden bg-amber-500 text-slate-900 p-3 px-4 text-xs font-bold flex justify-between items-center border-b border-amber-600 shadow-inner">
+            <div class="flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+                <span id="dbErrorMsg">Database issue detected. Currently using local storage backup.</span>
+            </div>
+            <button onclick="toggleDbPanel(true)" class="bg-indigo-900 text-white px-3 py-1 rounded-lg text-[10px] uppercase font-black tracking-wider hover:bg-indigo-950">Fix Sync</button>
+        </div>
+
         <div class="overflow-x-auto no-scrollbar" id="gridWrapper">
             <table class="w-full border-collapse bg-white">
                 <thead><tr id="tableHeader" class="bg-slate-100 border-b border-slate-200"></tr></thead>
@@ -91,7 +108,136 @@
                     <button onclick="addHouse()" class="bg-indigo-600 text-white px-4 rounded-xl"><i data-lucide="plus"></i></button>
                 </div>
                 <div id="houseList" class="max-h-60 overflow-y-auto space-y-2 py-2"></div>
+                <button onclick="clearAllBookings()" class="w-full py-2.5 bg-red-50 text-red-600 rounded-xl font-bold text-xs border border-red-100 hover:bg-red-100 transition duration-150">
+                    Wipe Stale/All Bookings
+                </button>
                 <button onclick="toggleHousePanel(false)" class="w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-500 text-sm">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database / Cloud Config Modal -->
+    <div id="dbPanel" class="fixed inset-0 bg-black/60 z-[70] hidden flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center gap-2">
+                    <div class="p-2 bg-indigo-100 text-indigo-700 rounded-xl"><i data-lucide="database" class="w-5 h-5"></i></div>
+                    <div>
+                        <h3 class="font-extrabold text-lg text-slate-900 leading-tight">Database & Cloud Sync</h3>
+                        <p class="text-xs text-slate-500 font-medium">Free storage configurations & backups</p>
+                    </div>
+                </div>
+                <button onclick="toggleDbPanel(false)" class="text-slate-400 p-1 hover:bg-slate-100 rounded-full"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Provider Selection -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Storage Provider</label>
+                    <select id="dbProviderSelect" onchange="onProviderChange(this.value)" class="w-full p-3 bg-slate-100 font-bold border border-slate-200 rounded-xl outline-none text-slate-800">
+                        <option value="firebase">Firebase Realtime DB (Google - 100% Free 24/7)</option>
+                        <option value="supabase">Supabase (Free Cloud DB)</option>
+                        <option value="local">Local Storage (100% Free Offline)</option>
+                    </select>
+                </div>
+
+                <!-- Firebase Config Section -->
+                <div id="firebaseConfigSection" class="space-y-3 p-4 bg-amber-50/60 rounded-2xl border border-amber-200">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-black uppercase text-amber-900 flex items-center gap-1">
+                            <i data-lucide="flame" class="w-3.5 h-3.5 text-amber-600"></i> Firebase Config
+                        </span>
+                        <button type="button" onclick="toggleFirebaseRules()" class="text-[10px] text-amber-700 font-bold underline">DB Rules Setup</button>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase text-slate-600 mb-0.5">Database URL (rtdb)</label>
+                        <input type="text" id="cfgFbDbUrl" placeholder="https://your-project-rtdb.firebaseio.com" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase text-slate-600 mb-0.5">API Key (Optional / Public)</label>
+                        <input type="text" id="cfgFbApiKey" placeholder="AIzaSy..." class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono">
+                    </div>
+                    <button onclick="saveDatabaseConfig()" class="w-full py-2.5 bg-amber-600 text-white rounded-xl font-bold text-xs shadow hover:bg-amber-700 transition">
+                        Connect Firebase Realtime DB
+                    </button>
+                </div>
+
+                <!-- Firebase Rules Helper -->
+                <div id="firebaseRulesSection" class="hidden p-4 bg-amber-50/80 rounded-2xl border border-amber-200 space-y-2">
+                    <h4 class="text-xs font-bold text-amber-900 flex items-center gap-1">
+                        <i data-lucide="shield" class="w-3.5 h-3.5 text-amber-600"></i> Firebase Realtime DB Rules
+                    </h4>
+                    <p class="text-[11px] text-amber-800">In your Firebase Console -> Realtime Database -> <b>Rules</b> tab, paste these public read/write rules:</p>
+                    <div class="relative">
+                        <pre class="bg-slate-900 text-amber-300 p-2.5 rounded-xl text-[10px] overflow-x-auto font-mono">{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}</pre>
+                        <button onclick="copyFirebaseRules()" class="absolute top-2 right-2 bg-slate-700 hover:bg-slate-600 text-white text-[9px] font-bold px-2 py-1 rounded">Copy Rules</button>
+                    </div>
+                </div>
+
+                <!-- Supabase Form Config -->
+                <div id="supabaseConfigSection" class="hidden space-y-3 p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xs font-black uppercase text-indigo-900">Supabase Credentials</span>
+                        <button type="button" onclick="resetDefaultSupabase()" class="text-[10px] text-indigo-600 font-bold underline">Reset Default</button>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase text-slate-600 mb-0.5">Project URL</label>
+                        <input type="text" id="cfgSbUrl" placeholder="https://your-project.supabase.co" class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold uppercase text-slate-600 mb-0.5">Anon API Key</label>
+                        <input type="password" id="cfgSbKey" placeholder="eyJhbGciOiJIUzI1Ni..." class="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-mono">
+                    </div>
+                    <button onclick="saveDatabaseConfig()" class="w-full py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs shadow hover:bg-indigo-700 transition">
+                        Connect / Test Supabase
+                    </button>
+                </div>
+
+                <!-- Quick SQL snippet copy -->
+                <div id="supabaseSqlSection" class="hidden p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                    <h4 class="text-xs font-bold text-slate-700 flex items-center gap-1">
+                        <i data-lucide="code" class="w-3.5 h-3.5 text-slate-500"></i> Supabase SQL Schema
+                    </h4>
+                    <p class="text-[11px] text-slate-500">If your Supabase DB was erased, run this query in Supabase SQL Editor:</p>
+                    <div class="relative">
+                        <pre class="bg-slate-900 text-emerald-400 p-2.5 rounded-xl text-[10px] overflow-x-auto font-mono">CREATE TABLE IF NOT EXISTS public.resi_data (
+  id int8 PRIMARY KEY,
+  content jsonb,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.resi_data ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (true);</pre>
+                        <button onclick="copySqlCode()" class="absolute top-2 right-2 bg-slate-700 hover:bg-slate-600 text-white text-[9px] font-bold px-2 py-1 rounded">Copy SQL</button>
+                    </div>
+                </div>
+
+                <!-- Manual JSON Export / Import Backup -->
+                <div class="p-4 bg-emerald-50/60 rounded-2xl border border-emerald-100 space-y-3">
+                    <h4 class="text-xs font-bold text-emerald-900 flex items-center gap-1">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i> Instant Offline Backup
+                    </h4>
+                    <p class="text-[11px] text-emerald-800">Never lose your room data. Export a complete JSON backup or restore from a previously saved backup file anytime.</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="exportJsonBackup()" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 shadow">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i> Backup JSON
+                        </button>
+                        <button onclick="document.getElementById('importJsonFile').click()" class="py-2.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 text-xs font-bold rounded-xl flex items-center justify-center gap-1 shadow-sm">
+                            <i data-lucide="upload" class="w-3.5 h-3.5"></i> Restore JSON
+                        </button>
+                        <input type="file" id="importJsonFile" accept=".json" class="hidden" onchange="importJsonBackup(event)">
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button onclick="toggleDbPanel(false)" class="w-full py-3 bg-slate-100 rounded-xl font-bold text-slate-600 text-sm hover:bg-slate-200">
+                        Close Panel
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -109,8 +255,8 @@
                     <input type="date" id="endDate" required class="w-full p-3 bg-slate-50 border-none rounded-xl font-bold text-sm">
                 </div>
                 <div class="flex flex-col gap-3 pt-6">
-                    <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg">Save Booking</button>
-                    <button type="button" id="btnDelete" onclick="deleteBooking()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hidden border border-red-100">Delete Entry</button>
+                    <button type="submit" class="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 transition">Save Booking</button>
+                    <button type="button" id="btnDelete" onclick="deleteBooking()" class="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-bold hidden border border-red-100 hover:bg-red-100 transition">Delete Entry</button>
                     <button type="button" onclick="closeModal()" class="w-full py-2 text-slate-400 font-bold text-sm text-center">Cancel</button>
                 </div>
             </form>
@@ -129,10 +275,58 @@
             });
         }
 
-        // --- SUPABASE CONFIGURATION ---
-        const SB_URL = "https://ahtzrmrtbloiwukbpsvt.supabase.co"; 
-        const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodHpybXJ0YmxvaXd1a2Jwc3Z0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTA0NDcsImV4cCI6MjA4OTY4NjQ0N30.StIqTuJWEPnlLRIC3jxlfSm5aX4RB4kLBboIDD7S_DM";
-        const _supabase = supabase.createClient(SB_URL, SB_KEY);
+        // --- DATABASE & SYNC CONFIGURATION ---
+        const DEFAULT_SB_URL = "https://ahtzrmrtbloiwukbpsvt.supabase.co"; 
+        const DEFAULT_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFodHpybXJ0YmxvaXd1a2Jwc3Z0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTA0NDcsImV4cCI6MjA4OTY4NjQ0N30.StIqTuJWEPnlLRIC3jxlfSm5aX4RB4kLBboIDD7S_DM";
+
+        let dbProvider = localStorage.getItem('cfg_provider') || 'firebase';
+        let currentSbUrl = localStorage.getItem('cfg_sb_url') || DEFAULT_SB_URL;
+        let currentSbKey = localStorage.getItem('cfg_sb_key') || DEFAULT_SB_KEY;
+        let currentFbDbUrl = localStorage.getItem('cfg_fb_db_url') || "";
+        let currentFbApiKey = localStorage.getItem('cfg_fb_api_key') || "";
+
+        let _supabase = null;
+        let _firebaseDb = null;
+        let realtimeSubscription = null;
+        let firebaseListenerRef = null;
+
+        function initSupabaseClient() {
+            if (dbProvider === 'supabase' && currentSbUrl && currentSbKey) {
+                try {
+                    _supabase = supabase.createClient(currentSbUrl, currentSbKey);
+                } catch (e) {
+                    console.error("Failed to create Supabase client:", e);
+                    _supabase = null;
+                }
+            } else {
+                _supabase = null;
+            }
+        }
+
+        async function initFirebaseClient() {
+            if (dbProvider === 'firebase' && currentFbDbUrl) {
+                try {
+                    let dbUrl = currentFbDbUrl.trim();
+                    if (dbUrl.endsWith('/')) {
+                        dbUrl = dbUrl.slice(0, -1);
+                    }
+                    const config = {
+                        databaseURL: dbUrl,
+                        apiKey: currentFbApiKey || "AIzaSy_dummy_key"
+                    };
+                    if (firebase.apps.length) {
+                        await firebase.app().delete();
+                    }
+                    firebase.initializeApp(config);
+                    _firebaseDb = firebase.database();
+                } catch (e) {
+                    console.error("Firebase init error:", e);
+                    _firebaseDb = null;
+                }
+            } else {
+                _firebaseDb = null;
+            }
+        }
 
         let currentDate = new Date();
         
@@ -143,17 +337,86 @@
         let roomNames = JSON.parse(localStorage.getItem('backup_names')) || {};
         let bookings = JSON.parse(localStorage.getItem('backup_bookings')) || [];
 
+        // Pre-fill modal form input values
+        document.getElementById('dbProviderSelect').value = dbProvider;
+        document.getElementById('cfgSbUrl').value = currentSbUrl;
+        document.getElementById('cfgSbKey').value = currentSbKey;
+        document.getElementById('cfgFbDbUrl').value = currentFbDbUrl;
+        document.getElementById('cfgFbApiKey').value = currentFbApiKey;
+        onProviderChange(dbProvider);
+
         async function init() {
             // Step 1: Immediately render using local memory (fast & works offline)
             renderAll();
             
+            if (dbProvider === 'local') {
+                setSyncStatus('LOCAL MODE', 'bg-sky-600');
+                hideErrorBanner();
+                return;
+            }
+
+            if (dbProvider === 'firebase') {
+                await initFirebaseClient();
+                if (!_firebaseDb || !currentFbDbUrl) {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    showErrorBanner("Firebase is selected. Please click Database Settings and paste your Firebase Database URL.");
+                    return;
+                }
+                setSyncStatus('SYNCING', 'bg-amber-500');
+                hideErrorBanner();
+
+                try {
+                    if (firebaseListenerRef) {
+                        firebaseListenerRef.off();
+                    }
+                    firebaseListenerRef = _firebaseDb.ref('resi_data');
+                    firebaseListenerRef.on('value', snapshot => {
+                        const val = snapshot.val();
+                        if (val && Object.keys(val).length > 0) {
+                            houseLibrary = val.houseLibrary || houseLibrary;
+                            activeHouse = val.activeHouse || activeHouse;
+                            houseRooms = val.houseRooms || houseRooms;
+                            roomNames = val.roomNames || roomNames;
+                            bookings = val.bookings || bookings;
+
+                            updateLocalBackup();
+                            setSyncStatus('ONLINE (FIREBASE)', 'bg-emerald-500');
+                            hideErrorBanner();
+                            renderAll();
+                        } else {
+                            // Seed Firebase database if empty
+                            saveToCloud();
+                        }
+                    }, error => {
+                        console.warn("Firebase listener error:", error);
+                        setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                        showErrorBanner(`Firebase error: ${error.message || 'Check database permissions / rules'}.`);
+                    });
+                } catch (e) {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    showErrorBanner(`Firebase connection issue: ${e.message}`);
+                }
+                return;
+            }
+
+            // Supabase mode
+            initSupabaseClient();
+            if (!_supabase) {
+                setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                showErrorBanner("Supabase is selected but client could not be initialized.");
+                return;
+            }
+
             setSyncStatus('SYNCING', 'bg-amber-500');
+            hideErrorBanner();
             
             try {
                 // Step 2: Fetch latest from Cloud
                 const { data, error } = await _supabase.from('resi_data').select('content').eq('id', 1).maybeSingle();
                 
-                if (data && data.content) {
+                if (error) throw error;
+
+                if (data && data.content && Object.keys(data.content).length > 0) {
                     const cloud = data.content;
                     houseLibrary = cloud.houseLibrary || [];
                     activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
@@ -161,36 +424,74 @@
                     roomNames = cloud.roomNames || {};
                     bookings = cloud.bookings || [];
                     
-                    updateLocalBackup(); // Sync cloud back to phone memory
-                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                    updateLocalBackup();
+                    setSyncStatus('ONLINE (SUPABASE)', 'bg-emerald-500');
+                    hideErrorBanner();
                 } else {
                     // Initialize cloud if it's a brand new database
-                    await _supabase.from('resi_data').insert([{ id: 1, content: { houseLibrary, houseRooms, roomNames, bookings } }]);
-                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                    const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
+                    const { error: insErr } = await _supabase.from('resi_data').upsert([{ id: 1, content: payload }]);
+                    if (insErr) throw insErr;
+                    setSyncStatus('ONLINE (SUPABASE)', 'bg-emerald-500');
+                    hideErrorBanner();
                 }
                 renderAll();
                 subscribeToChanges();
             } catch (e) {
-                setSyncStatus('OFFLINE', 'bg-red-500');
-                console.warn("Using offline mode.");
+                console.warn("Cloud connection error, falling back to local mode:", e);
+                setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                showErrorBanner(`Supabase sync issue: ${e.message || 'Database unreachable or paused'}. Using local storage fallback.`);
             }
         }
 
         // Save to BOTH Local and Cloud
         async function saveToCloud() {
             updateLocalBackup();
+
+            if (dbProvider === 'local') {
+                setSyncStatus('LOCAL SAVED', 'bg-sky-600');
+                return;
+            }
+
+            if (dbProvider === 'firebase') {
+                if (!_firebaseDb) {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    showErrorBanner("Firebase not connected. Please enter your Firebase Database URL.");
+                    return;
+                }
+                setSyncStatus('SAVING...', 'bg-blue-500');
+                const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
+                try {
+                    await _firebaseDb.ref('resi_data').set(payload);
+                    setSyncStatus('ONLINE (FIREBASE)', 'bg-emerald-500');
+                    hideErrorBanner();
+                } catch (err) {
+                    setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    showErrorBanner(`Firebase save failed: ${err.message}. Check Database Rules.`);
+                }
+                return;
+            }
+
+            if (!_supabase) {
+                setSyncStatus('LOCAL SAVED', 'bg-sky-600');
+                return;
+            }
+
             setSyncStatus('SAVING...', 'bg-blue-500');
             const payload = { houseLibrary, activeHouse, houseRooms, roomNames, bookings };
             
             try {
-                const { error } = await _supabase.from('resi_data').update({ content: payload }).eq('id', 1);
+                const { error } = await _supabase.from('resi_data').upsert([{ id: 1, content: payload }]);
                 if (!error) {
-                    setSyncStatus('ONLINE', 'bg-emerald-500');
+                    setSyncStatus('ONLINE (SUPABASE)', 'bg-emerald-500');
+                    hideErrorBanner();
                 } else {
                     setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                    showErrorBanner(`Cloud save failed: ${error.message || 'Error saving to Supabase'}`);
                 }
             } catch (err) {
                 setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
+                showErrorBanner(`Cloud connection offline. Changes saved safely in browser memory.`);
             }
         }
 
@@ -203,21 +504,164 @@
         }
 
         function subscribeToChanges() {
-            _supabase.channel('sync').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resi_data' }, payload => {
-                const cloud = payload.new.content;
-                houseLibrary = cloud.houseLibrary;
-                houseRooms = cloud.houseRooms;
-                roomNames = cloud.roomNames;
-                bookings = cloud.bookings;
-                updateLocalBackup();
-                renderAll();
-            }).subscribe();
+            if (!_supabase) return;
+            try {
+                if (realtimeSubscription) {
+                    _supabase.removeChannel(realtimeSubscription);
+                }
+                realtimeSubscription = _supabase.channel('sync').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'resi_data' }, payload => {
+                    if (payload && payload.new && payload.new.content) {
+                        const cloud = payload.new.content;
+                        houseLibrary = cloud.houseLibrary || houseLibrary;
+                        activeHouse = cloud.activeHouse || activeHouse;
+                        houseRooms = cloud.houseRooms || houseRooms;
+                        roomNames = cloud.roomNames || roomNames;
+                        bookings = cloud.bookings || bookings;
+                        updateLocalBackup();
+                        renderAll();
+                    }
+                }).subscribe();
+            } catch (e) {
+                console.warn("Realtime subscription warning:", e);
+            }
         }
 
         function setSyncStatus(text, colorClass) {
             const status = document.getElementById('syncStatus');
-            status.innerText = text;
-            status.className = `sync-indicator ${colorClass} text-white ml-2`;
+            if (status) {
+                status.innerText = text;
+                status.className = `sync-indicator ${colorClass} text-white ml-2 shadow`;
+            }
+        }
+
+        function showErrorBanner(msg) {
+            const banner = document.getElementById('dbErrorBanner');
+            const txt = document.getElementById('dbErrorMsg');
+            if (banner && txt) {
+                txt.innerText = msg;
+                banner.classList.remove('hidden');
+            }
+        }
+
+        function hideErrorBanner() {
+            const banner = document.getElementById('dbErrorBanner');
+            if (banner) banner.classList.add('hidden');
+        }
+
+        // --- DATABASE CONFIG HANDLERS ---
+        function onProviderChange(val) {
+            dbProvider = val;
+            const fbSec = document.getElementById('firebaseConfigSection');
+            const sbSec = document.getElementById('supabaseConfigSection');
+            const sbSql = document.getElementById('supabaseSqlSection');
+
+            if (val === 'firebase') {
+                fbSec.classList.remove('hidden');
+                sbSec.classList.add('hidden');
+                sbSql.classList.add('hidden');
+            } else if (val === 'supabase') {
+                fbSec.classList.add('hidden');
+                sbSec.classList.remove('hidden');
+                sbSql.classList.remove('hidden');
+            } else {
+                fbSec.classList.add('hidden');
+                sbSec.classList.add('hidden');
+                sbSql.classList.add('hidden');
+            }
+        }
+
+        function toggleFirebaseRules() {
+            document.getElementById('firebaseRulesSection').classList.toggle('hidden');
+        }
+
+        function copyFirebaseRules() {
+            const rules = `{\n  "rules": {\n    ".read": true,\n    ".write": true\n  }\n}`;
+            navigator.clipboard.writeText(rules).then(() => {
+                alert("Firebase DB Rules copied! Paste this into your Firebase Console -> Realtime Database -> Rules tab.");
+            });
+        }
+
+        function resetDefaultSupabase() {
+            document.getElementById('cfgSbUrl').value = DEFAULT_SB_URL;
+            document.getElementById('cfgSbKey').value = DEFAULT_SB_KEY;
+        }
+
+        function saveDatabaseConfig() {
+            dbProvider = document.getElementById('dbProviderSelect').value;
+            currentSbUrl = document.getElementById('cfgSbUrl').value.trim();
+            currentSbKey = document.getElementById('cfgSbKey').value.trim();
+            currentFbDbUrl = document.getElementById('cfgFbDbUrl').value.trim();
+            currentFbApiKey = document.getElementById('cfgFbApiKey').value.trim();
+
+            localStorage.setItem('cfg_provider', dbProvider);
+            localStorage.setItem('cfg_sb_url', currentSbUrl);
+            localStorage.setItem('cfg_sb_key', currentSbKey);
+            localStorage.setItem('cfg_fb_db_url', currentFbDbUrl);
+            localStorage.setItem('cfg_fb_api_key', currentFbApiKey);
+
+            toggleDbPanel(false);
+            init();
+        }
+
+        function copySqlCode() {
+            const sql = `CREATE TABLE IF NOT EXISTS public.resi_data (
+  id int8 PRIMARY KEY,
+  content jsonb,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.resi_data ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (true);`;
+            navigator.clipboard.writeText(sql).then(() => {
+                alert("SQL Setup Code copied to clipboard! Paste this into your Supabase SQL Editor.");
+            });
+        }
+
+        // JSON Backup & Restore
+        function exportJsonBackup() {
+            const backupObj = {
+                version: "1.0",
+                exportedAt: new Date().toISOString(),
+                houseLibrary,
+                activeHouse,
+                houseRooms,
+                roomNames,
+                bookings
+            };
+            const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ResiRoom_Backup_${new Date().toISOString().slice(0,10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+        }
+
+        function importJsonBackup(evt) {
+            const file = evt.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.houseLibrary && data.houseRooms) {
+                        houseLibrary = data.houseLibrary || [];
+                        activeHouse = data.activeHouse || (houseLibrary[0] || "");
+                        houseRooms = data.houseRooms || {};
+                        roomNames = data.roomNames || {};
+                        bookings = data.bookings || [];
+                        
+                        saveAndRefresh();
+                        alert("Backup restored successfully!");
+                        toggleDbPanel(false);
+                    } else {
+                        alert("Invalid backup file format.");
+                    }
+                } catch (err) {
+                    alert("Failed to parse JSON backup file.");
+                }
+            };
+            reader.readAsText(file);
         }
 
         function renderAll() {
@@ -227,7 +671,7 @@
             lucide.createIcons();
         }
 
-        // --- ORIGINAL APP LOGIC ---
+        // --- CORE APP LOGIC ---
 
         function switchHouse(val) { activeHouse = val; renderTable(); saveToCloud(); }
 
@@ -280,7 +724,7 @@
             const header = document.getElementById('tableHeader');
             if (!activeHouse || !houseRooms[activeHouse]) {
                 header.innerHTML = '';
-                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No data. Click Settings to add a house.</td></tr>';
+                wrapper.innerHTML = '<tr><td class="p-20 text-center text-slate-400 font-bold uppercase text-xs">No house data found. Click Manage Houses to create your first house!</td></tr>';
                 return;
             }
             const month = currentDate.getMonth();
@@ -354,51 +798,77 @@
         }
 
         function downloadExcel() {
-            const validBookings = bookings.filter(b => b.house === activeHouse);
-            if (validBookings.length === 0) return alert('No bookings to export');
+            const activeRooms = houseRooms[activeHouse] || [];
             
-            // 1. Prepare the data header
-            let table = `<table border="1">
-                <tr style="background-color: #4338ca; color: white; font-weight: bold;">
-                    <th>House</th>
-                    <th>Room / Label</th>
-                    <th>Resident Details</th>
-                    <th>Start Date</th>
-                    <th>End Date</th>
-                </tr>`;
+            // Get current selected month/year
+            const month = currentDate.getMonth();
+            const year = currentDate.getFullYear();
+            const daysCount = new Date(year, month + 1, 0).getDate();
+            
+            const firstDayStr = `${year}-${(month+1).toString().padStart(2, '0')}-01`;
+            const lastDayStr = `${year}-${(month+1).toString().padStart(2, '0')}-${daysCount.toString().padStart(2, '0')}`;
 
-            // 2. Add the rows
-            validBookings.forEach(b => {
+            // Filter bookings that belong to activeHouse AND activeRooms AND overlap with the current month/year
+            const validBookings = bookings.filter(b => 
+                b.house === activeHouse && 
+                activeRooms.some(roomId => String(roomId) === String(b.roomId)) &&
+                b.start <= lastDayStr &&
+                b.end >= firstDayStr
+            );
+            
+            if (validBookings.length === 0) {
+                return alert('No bookings to export for the active house in this month.');
+            }
+            
+            // Format the bookings data for export
+            const dataToExport = validBookings.map(b => {
                 const label = (roomNames[activeHouse] && roomNames[activeHouse][b.roomId]) 
                     ? roomNames[activeHouse][b.roomId] 
                     : `Room ${b.roomId}`;
-                
-                table += `<tr>
-                    <td>${b.house}</td>
-                    <td>${label}</td>
-                    <td>${b.members.replace(/\n/g, " ")}</td>
-                    <td>${b.start}</td>
-                    <td>${b.end}</td>
-                </tr>`;
+                return {
+                    "House": b.house,
+                    "Room / Label": label,
+                    "Resident Details": b.members.replace(/\n/g, " "),
+                    "Start Date": b.start,
+                    "End Date": b.end
+                };
             });
-            table += `</table>`;
 
-            // 3. Create a Blob with a Universal Excel format
-            const blob = new Blob([table], { type: 'application/vnd.ms-excel' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
+            // Create worksheet and workbook using SheetJS
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            
+            // Adjust column widths automatically
+            const max_len = dataToExport.reduce((acc, row) => {
+                return {
+                    House: Math.max(acc.House, String(row["House"]).length),
+                    RoomLabel: Math.max(acc.RoomLabel, String(row["Room / Label"]).length),
+                    ResidentDetails: Math.max(acc.ResidentDetails, String(row["Resident Details"]).length),
+                    StartDate: Math.max(acc.StartDate, String(row["Start Date"]).length),
+                    EndDate: Math.max(acc.EndDate, String(row["End Date"]).length),
+                };
+            }, { House: 10, RoomLabel: 15, ResidentDetails: 20, StartDate: 12, EndDate: 12 });
+            
+            worksheet['!cols'] = [
+                { wch: max_len.House + 2 },
+                { wch: max_len.RoomLabel + 2 },
+                { wch: max_len.ResidentDetails + 2 },
+                { wch: max_len.StartDate + 2 },
+                { wch: max_len.EndDate + 2 }
+            ];
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Bookings");
+            
             const safeName = activeHouse.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            
-            // 4. Download as .xls (Most compatible format in the world)
-            a.href = url;
-            a.download = `ResiRoom_Data_${safeName}.xls`;
-            document.body.appendChild(a);
-            a.click();
-            
-            setTimeout(() => {
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-            }, 0);
+            XLSX.writeFile(workbook, `ResiRoom_Data_${safeName}.xlsx`);
+        }
+
+        function clearAllBookings() {
+            if (confirm('Are you sure you want to delete ALL bookings for the active house? This cannot be undone.')) {
+                bookings = bookings.filter(b => b.house !== activeHouse);
+                saveAndRefresh();
+                alert('All bookings cleared for this house.');
+            }
         }
 
         function renderHouseDropdown() {
@@ -412,12 +882,13 @@
             list.innerHTML = houseLibrary.map((h, i) => `
                 <div class="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border mb-2">
                     <span class="font-bold text-indigo-900">${h}</span>
-                    <button onclick="removeHouse(${i})" class="text-red-400 p-2"><i data-lucide="trash-2"></i></button>
+                    <button onclick="removeHouse(${i})" class="text-red-400 p-2 hover:text-red-600"><i data-lucide="trash-2"></i></button>
                 </div>
             `).join('');
         }
 
         function toggleHousePanel(show) { document.getElementById('housePanel').classList.toggle('hidden', !show); }
+        function toggleDbPanel(show) { document.getElementById('dbPanel').classList.toggle('hidden', !show); }
         function closeModal() { document.getElementById('bookingModal').classList.add('hidden'); }
         function changeMonth(dir) { currentDate.setMonth(currentDate.getMonth() + dir); renderTable(); }
         
@@ -425,3 +896,5 @@
     </script>
 </body>
 </html>
+
+
