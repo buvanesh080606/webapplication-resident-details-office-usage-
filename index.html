@@ -264,11 +264,22 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
     </div>
 
     <script>
-        // --- PWA SERVICE WORKER REGISTRATION ---
+        // --- PWA SERVICE WORKER REGISTRATION & AUTO-UPDATE ---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('sw.js').then(reg => {
                     console.log('SW Registered!', reg);
+                    reg.onupdatefound = () => {
+                        const installingWorker = reg.installing;
+                        if (installingWorker) {
+                            installingWorker.onstatechange = () => {
+                                if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    console.log('New SW found, reloading page...');
+                                    window.location.reload();
+                                }
+                            };
+                        }
+                    };
                 }).catch(err => {
                     console.warn('SW registration failed:', err);
                 });
@@ -442,7 +453,22 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
             }
         }
 
-        // Save to BOTH Local and Cloud
+        function applyCloudData(cloud) {
+            if (!cloud) return;
+            houseLibrary = cloud.houseLibrary || [];
+            houseRooms = cloud.houseRooms || {};
+            roomNames = cloud.roomNames || {};
+            bookings = cloud.bookings || [];
+
+            if (!activeHouse || !houseLibrary.includes(activeHouse)) {
+                activeHouse = cloud.activeHouse || (houseLibrary[0] || "");
+            }
+
+            updateLocalBackup();
+            renderAll();
+        }
+
+        // Save to BOTH Local and Cloud using UPSERT
         async function saveToCloud() {
             updateLocalBackup();
 
