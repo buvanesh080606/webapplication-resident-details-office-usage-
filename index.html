@@ -329,6 +329,7 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
         }
 
         let currentDate = new Date();
+        let realtimeChannel = null;
         
         // --- HYBRID DATA STATE (Load Local Backup First) ---
         let houseLibrary = JSON.parse(localStorage.getItem('backup_lib')) || [];
@@ -411,7 +412,6 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
             hideErrorBanner();
             
             try {
-                // Step 2: Fetch latest from Cloud
                 const { data, error } = await _supabase.from('resi_data').select('content').eq('id', 1).maybeSingle();
                 
                 if (error) throw error;
@@ -435,8 +435,6 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
                     setSyncStatus('ONLINE (SUPABASE)', 'bg-emerald-500');
                     hideErrorBanner();
                 }
-                renderAll();
-                subscribeToChanges();
             } catch (e) {
                 console.warn("Cloud connection error, falling back to local mode:", e);
                 setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
@@ -490,6 +488,7 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
                     showErrorBanner(`Cloud save failed: ${error.message || 'Error saving to Supabase'}`);
                 }
             } catch (err) {
+                console.error("Save Exception:", err);
                 setSyncStatus('OFFLINE (LOCAL)', 'bg-red-500');
                 showErrorBanner(`Cloud connection offline. Changes saved safely in browser memory.`);
             }
@@ -783,7 +782,7 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
             const s = document.getElementById('startDate').value;
             const en = document.getElementById('endDate').value;
             const m = document.getElementById('members').value;
-            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && ((s >= b.start && s <= b.end) || (en >= b.start && en <= b.end))));
+            bookings = bookings.filter(b => !(b.roomId == id && b.house === activeHouse && !(s > b.end || en < b.start)));
             bookings.push({ roomId: id, house: activeHouse, start: s, end: en, members: m });
             saveAndRefresh(); 
             closeModal();
@@ -791,8 +790,9 @@ CREATE POLICY "Allow All" ON public.resi_data FOR ALL USING (true) WITH CHECK (t
 
         function deleteBooking() {
             const id = document.getElementById('modalRoomId').value;
-            const d = document.getElementById('startDate').value;
-            bookings = bookings.filter(b => !(b.roomId == id && b.house == activeHouse && d >= b.start && d <= b.end));
+            const s = document.getElementById('startDate').value;
+            const en = document.getElementById('endDate').value;
+            bookings = bookings.filter(b => !(b.roomId == id && b.house === activeHouse && !(s > b.end || en < b.start)));
             saveAndRefresh(); 
             closeModal();
         }
